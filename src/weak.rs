@@ -18,27 +18,30 @@ impl<H: ChannelHalf + Clone> Deref for Weak<H> {
 
 impl<H: ChannelHalf + Clone> Weak<H> {
     pub(crate) fn new(end: &H) -> Self {
-        end.chan().weak_ref_cnt(H::HALF).fetch_add(1, Relaxed);
+        let weak = end.chan().weak_ref_cnt(H::HALF).unwrap();
+        weak.fetch_add(1, Relaxed);
         Weak(ManuallyDrop::new(end.raw_clone()))
     }
 
     pub fn upgrade(&self) -> Option<H> {
         let incr = |c| (c != 0).then(|| c + 1);
-        let ref_cnt = self.0.chan().ref_cnt(H::HALF);
-        ref_cnt.fetch_update(Relaxed, Acquire, incr).ok()?;
+        let strong = self.0.chan().ref_cnt(H::HALF).unwrap();
+        strong.try_update(Relaxed, Acquire, incr).ok()?;
         Some(self.0.raw_clone())
     }
 }
 
 impl<H: ChannelHalf + Clone> Clone for Weak<H> {
     fn clone(&self) -> Self {
-        self.0.chan().weak_ref_cnt(H::HALF).fetch_add(1, Relaxed);
+        let weak = self.0.chan().weak_ref_cnt(H::HALF).unwrap();
+        weak.fetch_add(1, Relaxed);
         Self(ManuallyDrop::new(self.0.raw_clone()))
     }
 }
 
 impl<H: ChannelHalf + Clone> Drop for Weak<H> {
     fn drop(&mut self) {
-        self.0.chan().weak_ref_cnt(H::HALF).fetch_sub(1, AcqRel);
+        let weak = self.0.chan().weak_ref_cnt(H::HALF).unwrap();
+        weak.fetch_sub(1, AcqRel);
     }
 }

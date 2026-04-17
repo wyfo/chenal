@@ -31,7 +31,7 @@ pub(crate) mod sync {
         }
 
         #[cfg(loom)]
-        #[derive(Debug)]
+        #[derive(Debug, Default)]
         pub struct AtomicUsize(loom::sync::atomic::AtomicUsize);
 
         #[cfg(loom)]
@@ -112,6 +112,27 @@ pub(crate) mod sync {
                     seqcst_fence(set_order);
                 };
                 res
+            }
+        }
+
+        #[cfg(loom)]
+        #[derive(Debug, Default)]
+        pub struct AtomicBool(loom::sync::atomic::AtomicBool);
+
+        #[cfg(loom)]
+        impl AtomicBool {
+            pub(crate) fn new(x: bool) -> Self {
+                Self(loom::sync::atomic::AtomicBool::new(x))
+            }
+
+            pub(crate) fn load(&self, order: Ordering) -> bool {
+                seqcst_fence(order);
+                self.0.load(order)
+            }
+
+            pub(crate) fn store(&self, x: bool, order: Ordering) {
+                self.0.store(x, order);
+                seqcst_fence(order);
             }
         }
     }

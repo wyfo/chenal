@@ -2,19 +2,29 @@ pub(crate) extern crate std;
 use alloc::{sync::Arc, task::Wake};
 use core::{
     error, fmt, ptr,
-    task::{Context, RawWaker, RawWakerVTable, Waker},
+    task::{RawWaker, RawWakerVTable, Waker},
 };
 pub(crate) use std::time::{Duration, Instant};
 
 use crate::{
-    errors::{RecvError, SendError},
+    errors::{RecvError, SendError, TryAcquireError},
     loom::{thread, thread::Thread},
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SendTimeoutError<T> {
-    Timeout(T),
     Closed(T),
+    Timeout(T),
+}
+
+impl<T> SendTimeoutError<T> {
+    pub fn is_closed(&self) -> bool {
+        matches!(self, Self::Closed(_))
+    }
+
+    pub fn is_timeout(&self) -> bool {
+        matches!(self, Self::Timeout(_))
+    }
 }
 
 impl<T> fmt::Debug for SendTimeoutError<T> {
@@ -26,8 +36,8 @@ impl<T> fmt::Debug for SendTimeoutError<T> {
 impl<T> fmt::Display for SendTimeoutError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            SendTimeoutError::Timeout(..) => "timed out waiting on send operation".fmt(f),
-            SendTimeoutError::Closed(..) => "sending on a closed channel".fmt(f),
+            SendTimeoutError::Timeout(_) => "timed out waiting on send operation".fmt(f),
+            SendTimeoutError::Closed(_) => "sending on a closed channel".fmt(f),
         }
     }
 }
@@ -35,24 +45,43 @@ impl<T> fmt::Display for SendTimeoutError<T> {
 impl<T> error::Error for SendTimeoutError<T> {}
 
 impl<T> From<SendError<T>> for SendTimeoutError<T> {
-    fn from(err: SendError<T>) -> SendTimeoutError<T> {
+    fn from(err: SendError<T>) -> Self {
         match err {
             SendError(e) => SendTimeoutError::Closed(e),
         }
     }
 }
 
+impl<T> From<(TryAcquireError, T)> for SendTimeoutError<T> {
+    fn from((err, msg): (TryAcquireError, T)) -> Self {
+        match err {
+            TryAcquireError::Closed => Self::Closed(msg),
+            TryAcquireError::Unavailable => Self::Timeout(msg),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum RecvTimeoutError {
-    Timeout,
     Closed,
+    Timeout,
+}
+
+impl RecvTimeoutError {
+    pub fn is_closed(&self) -> bool {
+        matches!(self, Self::Closed)
+    }
+
+    pub fn is_timeout(&self) -> bool {
+        matches!(self, Self::Timeout)
+    }
 }
 
 impl fmt::Display for RecvTimeoutError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            RecvTimeoutError::Timeout => "timed out waiting on channel".fmt(f),
-            RecvTimeoutError::Closed => "channel is empty and sending half is closed".fmt(f),
+            Self::Timeout => "timed out waiting on channel".fmt(f),
+            Self::Closed => "channel is empty and sending half is closed".fmt(f),
         }
     }
 }
@@ -60,9 +89,18 @@ impl fmt::Display for RecvTimeoutError {
 impl error::Error for RecvTimeoutError {}
 
 impl From<RecvError> for RecvTimeoutError {
-    fn from(err: RecvError) -> RecvTimeoutError {
+    fn from(err: RecvError) -> Self {
         match err {
-            RecvError => RecvTimeoutError::Closed,
+            RecvError => Self::Closed,
+        }
+    }
+}
+
+impl From<TryAcquireError> for RecvTimeoutError {
+    fn from(err: TryAcquireError) -> Self {
+        match err {
+            TryAcquireError::Closed => Self::Closed,
+            TryAcquireError::Unavailable => Self::Timeout,
         }
     }
 }
@@ -84,28 +122,59 @@ static LAZY_VTABLE: RawWakerVTable = RawWakerVTable::new(
     |_| THREAD.with(|t| t.wake_by_ref()),
     |_| {},
 );
-static LAZY_WAKER: Waker = unsafe { Waker::new(ptr::null(), &LAZY_VTABLE) };
+pub(crate) static PARK_WAKER: Waker = unsafe { Waker::new(ptr::null(), &LAZY_VTABLE) };
 
-pub(crate) fn context() -> Context<'static> {
-    Context::from_waker(&LAZY_WAKER)
-}
-
-pub(crate) struct TimeoutError;
-
-#[derive(Default)]
-pub(crate) struct Parker {
-    deadline: Option<Instant>,
+pub(crate) enum Parker {
+    Blocking,
+    Deadline(Instant),
+    Timeout {
+        timeout: Duration,
+        deadline: Option<Instant>,
+    },
 }
 
 impl Parker {
-    pub(crate) fn park(&mut self, timeout: Option<Duration>) -> Result<(), TimeoutError> {
-        if let Some(timeout) = timeout {
-            let now = Instant::now();
-            let deadline = *self.deadline.get_or_insert(now + timeout);
-            thread::park_timeout(deadline.checked_duration_since(now).ok_or(TimeoutError)?);
-        } else {
-            thread::park();
-        }
+    #[cfg_attr(loom, expect(dead_code))]
+    pub(crate) fn park(&mut self) -> Result<(), TryAcquireError> {
+        let (deadline, now) = match self {
+            Self::Blocking => {
+                thread::park();
+                return Ok(());
+            }
+            Self::Deadline(deadline) => (*deadline, Instant::now()),
+            Self::Timeout { timeout, deadline } => {
+                let now = Instant::now();
+                (*deadline.get_or_insert(now + *timeout), now)
+            }
+        };
+        #[cfg(loom)]
+        unimplemented!();
+        let timeout = deadline
+            .checked_duration_since(now)
+            .ok_or(TryAcquireError::Unavailable)?;
+        #[cfg(not(loom))]
+        thread::park_timeout(timeout);
         Ok(())
+    }
+}
+
+impl From<()> for Parker {
+    fn from(_: ()) -> Self {
+        Self::Blocking
+    }
+}
+
+impl From<Instant> for Parker {
+    fn from(deadline: Instant) -> Self {
+        Self::Deadline(deadline)
+    }
+}
+
+impl From<Duration> for Parker {
+    fn from(timeout: Duration) -> Self {
+        Self::Timeout {
+            timeout,
+            deadline: None,
+        }
     }
 }

@@ -3,6 +3,9 @@ name = "chenal"
 version = "0.1.0"
 edition = "2024"
 
+[package.metadata.docs.rs]
+all-features = true
+
 [features]
 default = ["std"]
 blocking = ["std"]
@@ -11,13 +14,14 @@ stream = ["dep:futures-core"]
 weak = []
 
 [dependencies]
-aiq = { path = "../aiq", default-features = false }
+aiq = { path = "../aiq", default-features = false, features = ["wait-queue"] }
 crossbeam-utils = { version = "0.8", default-features = false }
 futures-core = { version = "0.3", optional = true }
 spmc-waker = { path = "../spmc_waker" }
 
 [dev-dependencies]
 futures = "0.3.32"
+rstest = "0.26.1"
 
 [target.'cfg(loom)'.dependencies]
 loom = { version = "0.7.2", features = ["futures"] }
@@ -30,4 +34,5 @@ unsafe_op_in_unsafe_fn = "deny"
 [lints.clippy]
 dbg_macro = "warn"
 semicolon_if_nothing_returned = "warn"
+
 
