@@ -1,11 +1,12 @@
 use core::{
     fmt, mem,
+    mem::ManuallyDrop,
     ops::Deref,
     pin::Pin,
     ptr::NonNull,
     sync::atomic::{
         AtomicUsize,
-        Ordering::{AcqRel, Relaxed},
+        Ordering::{AcqRel, Acquire, Relaxed},
     },
     task::{Context, Poll, ready},
 };
@@ -105,9 +106,7 @@ pub(crate) struct Chan<T, Ch: internal::Channel> {
     pub(crate) rx_waiter: Ch::RxWaiter,
     tx_cnt: Ch::TxRefCount,
     rx_cnt: Ch::RxRefCount,
-    #[cfg(feature = "weak")]
     weak_tx_cnt: Ch::TxRefCount,
-    #[cfg(feature = "weak")]
     weak_rx_cnt: Ch::RxRefCount,
     close_waiter: aiq::WaitQueue,
 }
@@ -126,9 +125,7 @@ impl<T, Ch: internal::Channel> Chan<T, Ch> {
             rx_waiter: Default::default(),
             tx_cnt: RefCount::one(),
             rx_cnt: RefCount::one(),
-            #[cfg(feature = "weak")]
             weak_tx_cnt: RefCount::zero(),
-            #[cfg(feature = "weak")]
             weak_rx_cnt: RefCount::zero(),
             close_waiter: Default::default(),
         }
@@ -320,15 +317,14 @@ impl<T, Ch: internal::Channel> Chan<T, Ch> {
         self.read_slot(slot)
     }
 
-    pub(crate) fn ref_cnt(&self, half: Half) -> Option<&AtomicUsize> {
+    fn ref_cnt(&self, half: Half) -> Option<&AtomicUsize> {
         match half {
             Half::Tx | Half::MTx | Half::UTx | Half::UMTx => self.tx_cnt.atomic(),
             Half::Rx | Half::MRx => self.rx_cnt.atomic(),
         }
     }
 
-    #[cfg(feature = "weak")]
-    pub(crate) fn weak_ref_cnt(&self, half: Half) -> Option<&AtomicUsize> {
+    fn weak_ref_cnt(&self, half: Half) -> Option<&AtomicUsize> {
         match half {
             Half::Tx | Half::MTx | Half::UTx | Half::UMTx => self.weak_tx_cnt.atomic(),
             Half::Rx | Half::MRx => self.weak_rx_cnt.atomic(),
@@ -551,7 +547,6 @@ macro_rules! channel_half {
             }
         }
         impl<T, Ch: Channel> internal::ChannelHalf<T, Ch> for $ty<T, Ch> {
-            #[cfg(feature = "weak")]
             const HALF: Half = Half::$ty;
             fn new(chan: Arc<Chan<T, Ch>>) -> Self {
                 Self { chan }
@@ -663,9 +658,8 @@ macro_rules! cloneable_half {
             }
         }
         impl<T, Ch: Channel> $ty<T, Ch> {
-            #[cfg(feature = "weak")]
-            pub fn downgrade(&self) -> crate::weak::Weak<Self> {
-                crate::weak::Weak::new(self)
+            pub fn downgrade(&self) -> Weak<Self> {
+                Weak::new(self)
             }
         }
     };
@@ -697,3 +691,43 @@ channel_half!(MRx);
 rx_methods!(MRx);
 common_half!(MRx);
 cloneable_half!(MRx);
+
+pub struct Weak<H: ChannelHalf + Clone>(pub(crate) ManuallyDrop<H>);
+
+impl<H: ChannelHalf + Clone> Deref for Weak<H> {
+    type Target = H;
+
+    fn deref(&self) -> &H {
+        &self.0
+    }
+}
+
+impl<H: ChannelHalf + Clone> Weak<H> {
+    pub(crate) fn new(end: &H) -> Self {
+        let weak = end.chan().weak_ref_cnt(H::HALF).unwrap();
+        weak.fetch_add(1, Relaxed);
+        Weak(ManuallyDrop::new(end.raw_clone()))
+    }
+
+    pub fn upgrade(&self) -> Option<H> {
+        let incr = |c| (c != 0).then(|| c + 1);
+        let strong = self.0.chan().ref_cnt(H::HALF).unwrap();
+        strong.try_update(Relaxed, Acquire, incr).ok()?;
+        Some(self.0.raw_clone())
+    }
+}
+
+impl<H: ChannelHalf + Clone> Clone for Weak<H> {
+    fn clone(&self) -> Self {
+        let weak = self.0.chan().weak_ref_cnt(H::HALF).unwrap();
+        weak.fetch_add(1, Relaxed);
+        Self(ManuallyDrop::new(self.0.raw_clone()))
+    }
+}
+
+impl<H: ChannelHalf + Clone> Drop for Weak<H> {
+    fn drop(&mut self) {
+        let weak = self.0.chan().weak_ref_cnt(H::HALF).unwrap();
+        weak.fetch_sub(1, AcqRel);
+    }
+}

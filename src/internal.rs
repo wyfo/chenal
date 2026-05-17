@@ -87,7 +87,6 @@ pub(crate) trait Channel: Sized + 'static {
 }
 
 pub(crate) trait ChannelHalf<T, Ch: Channel> {
-    #[cfg(feature = "weak")]
     const HALF: crate::channel::Half;
     fn new(chan: Arc<Chan<T, Ch>>) -> Self;
     fn chan(&self) -> &Arc<Chan<T, Ch>>;

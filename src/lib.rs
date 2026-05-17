@@ -17,16 +17,12 @@ mod rc;
 pub mod spmc;
 pub mod spsc;
 mod waiter;
-#[cfg(feature = "weak")]
-mod weak;
 
 /// Reexport of [`aiq::sync`].
 pub use aiq::sync;
 pub use channel::{
-    Channel, ChannelHalf, ChannelId, CloseGuard, CloseHandle, MRx, MTx, Rx, Tx, UMTx, UTx,
+    Channel, ChannelHalf, ChannelId, CloseGuard, CloseHandle, MRx, MTx, Rx, Tx, UMTx, UTx, Weak,
 };
-#[cfg(feature = "weak")]
-pub use weak::Weak;
 
 pub mod futures {
     pub use crate::channel::{RecvFuture, SendFuture};
