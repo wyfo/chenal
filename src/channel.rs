@@ -109,8 +109,6 @@ pub(crate) struct Chan<T, Ch: internal::Channel> {
     pub(crate) rx_waiter: Ch::RxWaiter,
     tx_cnt: Ch::TxRefCount,
     rx_cnt: Ch::RxRefCount,
-    weak_tx_cnt: Ch::TxRefCount,
-    weak_rx_cnt: Ch::RxRefCount,
     close_waiter: aiq::WaitQueue,
 }
 
@@ -128,8 +126,6 @@ impl<T, Ch: internal::Channel> Chan<T, Ch> {
             rx_waiter: Default::default(),
             tx_cnt: RefCount::one(),
             rx_cnt: RefCount::one(),
-            weak_tx_cnt: RefCount::zero(),
-            weak_rx_cnt: RefCount::zero(),
             close_waiter: Default::default(),
         }
     }
@@ -324,13 +320,6 @@ impl<T, Ch: internal::Channel> Chan<T, Ch> {
         match half {
             Half::Tx | Half::MTx | Half::UTx | Half::UMTx => self.tx_cnt.atomic(),
             Half::Rx | Half::MRx => self.rx_cnt.atomic(),
-        }
-    }
-
-    fn weak_ref_cnt(&self, half: Half) -> Option<&AtomicUsize> {
-        match half {
-            Half::Tx | Half::MTx | Half::UTx | Half::UMTx => self.weak_tx_cnt.atomic(),
-            Half::Rx | Half::MRx => self.weak_rx_cnt.atomic(),
         }
     }
 
@@ -719,8 +708,6 @@ impl<H: ChannelHalf + Clone> Deref for Weak<H> {
 
 impl<H: ChannelHalf + Clone> Weak<H> {
     pub(crate) fn new(end: &H) -> Self {
-        let weak = end.chan().weak_ref_cnt(H::HALF).unwrap();
-        weak.fetch_add(1, Relaxed);
         Weak(ManuallyDrop::new(end.raw_clone()))
     }
 
@@ -734,15 +721,6 @@ impl<H: ChannelHalf + Clone> Weak<H> {
 
 impl<H: ChannelHalf + Clone> Clone for Weak<H> {
     fn clone(&self) -> Self {
-        let weak = self.0.chan().weak_ref_cnt(H::HALF).unwrap();
-        weak.fetch_add(1, Relaxed);
         Self(ManuallyDrop::new(self.0.raw_clone()))
-    }
-}
-
-impl<H: ChannelHalf + Clone> Drop for Weak<H> {
-    fn drop(&mut self) {
-        let weak = self.0.chan().weak_ref_cnt(H::HALF).unwrap();
-        weak.fetch_sub(1, AcqRel);
     }
 }
