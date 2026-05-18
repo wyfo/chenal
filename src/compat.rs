@@ -1,3 +1,6 @@
+#![allow(missing_docs)]
+//! Compatibility wrappers to be used in place of other populars channel implementation.
+
 #[cfg(feature = "compat-tokio")]
 pub mod tokio {
     pub mod mpsc;
@@ -6,5 +9,3 @@ pub mod tokio {
 pub mod std {
     pub mod mpsc;
 }
-#[cfg(feature = "compat-tachyonix")]
-pub mod tachyonix;

@@ -12,18 +12,15 @@ blocking = ["std"]
 compat-tokio = ["dep:tokio"]
 compat-tokio-time = ["compat-tokio", "tokio/time"]
 compat-std = ["blocking"]
-compat-tachyonix = []
 std = ["aiq/std", "crossbeam-utils/std"]
 stream = ["dep:futures-core"]
 
 
 [dependencies]
-#aiq = { git = "https://github.com/wyfo/aiq", default-features = false, features = ["wait-queue"] }
-aiq = { path = "../aiq", default-features = false, features = ["wait-queue"] }
+aiq = { git = "https://github.com/wyfo/aiq", default-features = false, features = ["wait-queue"] }
 crossbeam-utils = { version = "0.8", default-features = false }
 futures-core = { version = "0.3", optional = true }
-#spmc-waker = { git = "https://github.com/wyfo/spmc-waker" }
-spmc-waker = { path = "../spmc_waker" }
+spmc-waker = { git = "https://github.com/wyfo/spmc-waker" }
 tokio = { version = "1", optional = true, default-features = false, features = ["rt"] }
 
 [dev-dependencies]
@@ -45,10 +42,6 @@ required-features = ["blocking"]
 [[test]]
 name = "compat_std_mpsc_sync"
 required-features = ["compat-std"]
-
-[[test]]
-name = "compat_tachyonix"
-required-features = ["compat-tachyonix"]
 
 [[test]]
 name = "compat_tokio"

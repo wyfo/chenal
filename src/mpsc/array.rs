@@ -26,6 +26,7 @@ use crate::{
 const LB: usize = usize::MAX >> HB_SHIFT;
 const HB_SHIFT: u32 = usize::BITS / 2;
 
+/// Bounded channel implementation.
 pub struct Array<
     C: Capacity = usize,
     const UNBOUNDED_BACKOFF: bool = DEFAULT_UNBOUNDED_BACKOFF,
@@ -38,6 +39,7 @@ pub struct Array<
 impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives>
     Array<C, UNBOUNDED_BACKOFF, SP>
 {
+    /// Constructs a new `Array` with the specified capacity.
     pub fn new(capacity: C) -> Self {
         Self {
             capacity,

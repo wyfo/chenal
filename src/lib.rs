@@ -1,3 +1,7 @@
+//! # chenal
+//!
+//! Performant channel implementations.
+#![warn(missing_docs)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![no_std]
 extern crate alloc;
@@ -8,11 +12,7 @@ mod asm;
 mod blocking;
 pub mod capacity;
 mod channel;
-#[cfg(any(
-    feature = "compat-tokio",
-    feature = "compat-std",
-    feature = "compat-tachyonix"
-))]
+#[cfg(any(feature = "compat-tokio", feature = "compat-std",))]
 pub mod compat;
 pub mod errors;
 mod internal;
@@ -30,6 +30,7 @@ pub use channel::{
     Channel, ChannelHalf, ChannelId, CloseGuard, CloseHandle, MRx, MTx, Rx, Tx, UMTx, UTx, Weak,
 };
 
+/// Future types
 pub mod futures {
     pub use crate::channel::{ClosedFuture, RecvFuture, SendFuture};
 }

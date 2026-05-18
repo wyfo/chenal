@@ -25,10 +25,14 @@ use crate::{
     waiter::Waiter,
 };
 
+/// A channel implementation.
 #[expect(private_bounds)]
 pub trait Channel: internal::Channel {
+    /// Sender half of the channel.
     type TxHalf<T>: ChannelHalf<Msg = T, Channel = Self>;
+    /// Receiver half of the channel.
     type RxHalf<T>: ChannelHalf<Msg = T, Channel = Self>;
+    /// Creates a sender/receiver pair using this implementation.
     fn channel<T>(self) -> (Self::TxHalf<T>, Self::RxHalf<T>) {
         use internal::ChannelHalf;
         let chan = Arc::new(Chan::new(self));
@@ -36,11 +40,15 @@ pub trait Channel: internal::Channel {
     }
 }
 
+/// A bounded channel.
 pub trait BoundedChannel: Channel {}
 
+/// A sender or receiver half of a channel.
 #[expect(private_bounds)]
 pub trait ChannelHalf: internal::ChannelHalf<Self::Msg, Self::Channel> {
+    /// The message type of the channel.
     type Msg;
+    /// The implementation of the channel.
     type Channel: Channel;
 }
 
