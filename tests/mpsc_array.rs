@@ -20,26 +20,24 @@ trait Send2<T> {
     fn send2(&self, msg: T, sync: bool) -> Result<(), SendError<T>>;
 }
 impl<T, const UB: bool> Send2<T> for MTx<T, Array<usize, UB>> {
-    #[cfg_attr(not(feature = "blocking"), allow(unused_variables))]
     fn send2(&self, msg: T, sync: bool) -> Result<(), SendError<T>> {
-        #[cfg(feature = "blocking")]
         if sync {
-            return self.send_blocking(msg);
+            self.send_blocking(msg)
+        } else {
+            block_on(self.send(msg))
         }
-        block_on(self.send(msg))
     }
 }
 trait Recv2<T> {
     fn recv2(&mut self, sync: bool) -> Result<T, RecvError>;
 }
 impl<T, const UB: bool> Recv2<T> for Rx<T, Array<usize, UB>> {
-    #[cfg_attr(not(feature = "blocking"), allow(unused_variables))]
     fn recv2(&mut self, sync: bool) -> Result<T, RecvError> {
-        #[cfg(feature = "blocking")]
         if sync {
-            return self.recv_blocking();
+            self.recv_blocking()
+        } else {
+            block_on(self.recv())
         }
-        block_on(self.recv())
     }
 }
 
@@ -214,6 +212,23 @@ fn send_future_cancel<const UB: bool>(
         assert_eq!(rx.try_recv(), Ok(0));
     }
     assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
+}
+
+// Canceling a notified SendFuture passes the notification to the next waiter.
+#[rstest]
+fn send_future_cancel_wakes_next<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
+    let _ = ub;
+    let (tx, mut rx) = <Array<_, UB>>::new(1).channel();
+    tx.try_send(0).unwrap();
+    let mut cx = Context::from_waker(Waker::noop());
+    let mut send1 = pin!(tx.send(1));
+    assert_eq!(send1.as_mut().poll(&mut cx), Poll::Pending);
+    let mut send2 = pin!(tx.send(2));
+    assert_eq!(send2.as_mut().poll(&mut cx), Poll::Pending);
+    assert_eq!(rx.try_recv(), Ok(0)); // notifies send1
+    assert_eq!(send1.as_mut().cancel(), Some(1)); // cancels send1, should re-notify send2
+    assert_eq!(send2.as_mut().poll(&mut cx), Poll::Ready(Ok(())));
+    assert_eq!(rx.try_recv(), Ok(2));
 }
 
 // A canceled RecvFuture does not consume a message.
