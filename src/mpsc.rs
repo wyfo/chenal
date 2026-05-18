@@ -1,9 +1,7 @@
 //! MPSC channel implementations.
 mod array;
-mod block;
 
 pub use array::Array;
-pub use block::BlockArray;
 
 use crate::{channel, channel::Channel};
 

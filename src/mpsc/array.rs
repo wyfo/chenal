@@ -1,5 +1,5 @@
 use core::{
-    cmp, iter,
+    cmp,
     marker::PhantomData,
     mem::MaybeUninit,
     ptr::NonNull,
@@ -27,7 +27,14 @@ const LB: usize = usize::MAX >> HB_SHIFT;
 const HB_SHIFT: u32 = usize::BITS / 2;
 
 /// Bounded channel implementation.
+///
+/// It allocates an array of `capacity` message slots. If `BLOCK_SIZE > 1` the array is fragmented
+/// into blocks, which are released by the receiver only after their last slot has been read.
+/// It means the exact capacity of the channel at one instant has a lower bound to
+/// `capacity - BLOCK_SIZE`. As a consequence, every `recv` operation except the last in a
+/// block uses relaxed synchronization, which is otherwise expensive on `x86_64` architecture.
 pub struct Array<
+    const BLOCK_SIZE: usize = 1,
     C: Capacity = usize,
     const UNBOUNDED_BACKOFF: bool = DEFAULT_UNBOUNDED_BACKOFF,
     SP: SyncPrimitives = DefaultSyncPrimitives,
@@ -36,15 +43,25 @@ pub struct Array<
     sync: PhantomData<SP>,
 }
 
-impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives>
-    Array<C, UNBOUNDED_BACKOFF, SP>
+impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives>
+    Array<BLOCK_SIZE, C, UNBOUNDED_BACKOFF, SP>
 {
     /// Constructs a new `Array` with the specified capacity.
     pub fn new(capacity: C) -> Self {
+        const {
+            assert!(
+                BLOCK_SIZE.is_power_of_two(),
+                "`BLOCK_SIZE` must be a power of 2"
+            );
+        }
         assert!(capacity.get() > 0, "capacity must not be zero");
         assert!(
             capacity.get() <= (usize::MAX & LB) >> 1,
             "capacity overflow"
+        );
+        assert!(
+            capacity.get().is_multiple_of(BLOCK_SIZE),
+            "capacity must be a multiple of `BLOCK_SIZE`"
         );
         Self {
             capacity,
@@ -53,15 +70,15 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives>
     }
 }
 
-impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> Channel
-    for Array<C, UNBOUNDED_BACKOFF, SP>
+impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives>
+    Channel for Array<BLOCK_SIZE, C, UNBOUNDED_BACKOFF, SP>
 {
     type TxHalf<T> = MTx<T, Self>;
     type RxHalf<T> = Rx<T, Self>;
 }
 
-impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> BoundedChannel
-    for Array<C, UNBOUNDED_BACKOFF, SP>
+impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives>
+    BoundedChannel for Array<BLOCK_SIZE, C, UNBOUNDED_BACKOFF, SP>
 {
 }
 
@@ -93,8 +110,8 @@ impl<T, C: Capacity> Storage<T, C> {
     }
 }
 
-impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::Channel
-    for Array<C, UNBOUNDED_BACKOFF, SP>
+impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives>
+    internal::Channel for Array<BLOCK_SIZE, C, UNBOUNDED_BACKOFF, SP>
 {
     type Storage<T> = Storage<T, C>;
 
@@ -125,7 +142,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
             cmp::Ordering::Equal => (0..0, 0..0),
             cmp::Ordering::Greater => (head_idx..tail_idx, 0..0),
         };
-        for idx in iter::chain(r1, r2) {
+        for idx in r1.chain(r2) {
             let slot = unsafe { chan.slots.get_unchecked(idx) };
             unsafe { slot.msg.with_ref_mut(|m| m.assume_init_drop()) };
         }
@@ -196,7 +213,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
                     continue;
                 }
                 let head = chan.rx_shared_state.load(SeqCst);
-                let max_tail = head.wrapping_add(lap());
+                let max_tail = head.wrapping_add(lap()) & !(BLOCK_SIZE - 1);
                 if max_tail == tail {
                     return Err(TryAcquireError::Unavailable);
                 }
@@ -236,6 +253,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
     type RxSlot<T> = (NonNull<Slot<T>>, usize);
     type RxWaiter = SpmcWaker<false>;
     type RxRefCount = ();
+    const WAKE_TX_AFTER_READ: bool = false;
 
     fn rx_init_state<T>(_storage: &Self::Storage<T>) -> Self::RxAtomicState<T> {
         AtomicUsize::new(0)
@@ -304,7 +322,12 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
         } else {
             head + 1
         };
-        chan.rx_shared_state.store(new_head, SeqCst);
+        if new_head.is_multiple_of(BLOCK_SIZE) {
+            chan.rx_shared_state.store(new_head, SeqCst);
+            chan.tx_waiter.notify_many_const::<BLOCK_SIZE>();
+        } else {
+            chan.rx_shared_state.store(new_head, Relaxed);
+        }
         msg
     }
 }

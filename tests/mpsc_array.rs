@@ -2,7 +2,7 @@ use core::{
     pin::pin,
     task::{Context, Poll, Waker},
 };
-use std::{iter, sync::Arc, thread::ScopedJoinHandle};
+use std::{iter, sync::Arc, thread, thread::ScopedJoinHandle};
 
 use chenal::{
     Channel, MTx, Rx,
@@ -15,11 +15,14 @@ use rstest::rstest;
 struct Bool<const BOOL: bool>;
 const TRUE: Bool<true> = Bool::<true>;
 const FALSE: Bool<false> = Bool::<false>;
+struct Usize<const USIZE: usize>;
+const ONE: Usize<1> = Usize::<1>;
+const TWO: Usize<2> = Usize::<2>;
 
 trait Send2<T> {
     fn send2(&self, msg: T, sync: bool) -> Result<(), SendError<T>>;
 }
-impl<T, const UB: bool> Send2<T> for MTx<T, Array<usize, UB>> {
+impl<T, const BLOCK_SIZE: usize, const UB: bool> Send2<T> for MTx<T, Array<BLOCK_SIZE, usize, UB>> {
     fn send2(&self, msg: T, sync: bool) -> Result<(), SendError<T>> {
         if sync {
             self.send_blocking(msg)
@@ -31,7 +34,7 @@ impl<T, const UB: bool> Send2<T> for MTx<T, Array<usize, UB>> {
 trait Recv2<T> {
     fn recv2(&mut self, sync: bool) -> Result<T, RecvError>;
 }
-impl<T, const UB: bool> Recv2<T> for Rx<T, Array<usize, UB>> {
+impl<T, const BLOCK_SIZE: usize, const UB: bool> Recv2<T> for Rx<T, Array<BLOCK_SIZE, usize, UB>> {
     fn recv2(&mut self, sync: bool) -> Result<T, RecvError> {
         if sync {
             self.recv_blocking()
@@ -42,10 +45,14 @@ impl<T, const UB: bool> Recv2<T> for Rx<T, Array<usize, UB>> {
 }
 
 #[rstest]
-fn mpsc<const UB: bool>(#[values(false, true)] sync: bool, #[values(FALSE, TRUE)] ub: Bool<UB>) {
-    let _ = ub;
-    let (tx, mut rx) = <Array<_, UB>>::new(2).channel();
-    let mut values = std::thread::scope(|s| {
+fn mpsc<const BS: usize, const UB: bool>(
+    #[values(false, true)] sync: bool,
+    #[values(ONE, TWO)] bs: Usize<BS>,
+    #[values(FALSE, TRUE)] ub: Bool<UB>,
+) {
+    let _ = (bs, ub);
+    let (tx, mut rx) = <Array<BS, _, UB>>::new(2).channel();
+    let mut values = thread::scope(|s| {
         s.spawn(|| tx.send2(0, sync));
         s.spawn(|| tx.send2(1, sync));
         s.spawn(|| tx.send2(2, sync));
@@ -57,9 +64,12 @@ fn mpsc<const UB: bool>(#[values(false, true)] sync: bool, #[values(FALSE, TRUE)
 
 // Sequential send/recv preserves FIFO order.
 #[rstest]
-fn sequential<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
-    let _ = ub;
-    let (tx, mut rx) = <Array<_, UB>>::new(2).channel();
+fn sequential<const BS: usize, const UB: bool>(
+    #[values(ONE, TWO)] bs: Usize<BS>,
+    #[values(FALSE, TRUE)] ub: Bool<UB>,
+) {
+    let _ = (bs, ub);
+    let (tx, mut rx) = <Array<1, _, UB>>::new(2).channel();
     tx.try_send(1).unwrap();
     tx.try_send(2).unwrap();
     assert_eq!(rx.try_recv(), Ok(1));
@@ -69,9 +79,12 @@ fn sequential<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
 
 // Ring buffer wraps around correctly across multiple laps.
 #[rstest]
-fn wrap_around<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
-    let _ = ub;
-    let (tx, mut rx) = <Array<_, UB>>::new(2).channel();
+fn wrap_around<const BS: usize, const UB: bool>(
+    #[values(ONE, TWO)] bs: Usize<BS>,
+    #[values(FALSE, TRUE)] ub: Bool<UB>,
+) {
+    let _ = (bs, ub);
+    let (tx, mut rx) = <Array<BS, _, UB>>::new(2).channel();
     for i in 0..4 {
         tx.try_send(i).unwrap();
         assert_eq!(rx.try_recv(), Ok(i));
@@ -82,7 +95,7 @@ fn wrap_around<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
 #[rstest]
 fn try_send_full<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
     let _ = ub;
-    let (tx, mut rx) = <Array<_, UB>>::new(1).channel();
+    let (tx, mut rx) = <Array<1, _, UB>>::new(1).channel();
     assert!(!tx.is_full());
     tx.try_send(0).unwrap();
     assert!(tx.is_full());
@@ -96,7 +109,7 @@ fn try_send_full<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
 #[rstest]
 fn try_recv_empty<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
     let _ = ub;
-    let (tx, mut rx) = <Array<_, UB>>::new(1).channel::<usize>();
+    let (tx, mut rx) = <Array<1, _, UB>>::new(1).channel::<usize>();
     assert!(rx.is_empty());
     assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
     tx.try_send(0).unwrap();
@@ -112,7 +125,7 @@ fn tx_drop_closes<const UB: bool>(
     #[values(FALSE, TRUE)] ub: Bool<UB>,
 ) {
     let _ = ub;
-    let (tx, mut rx) = <Array<_, UB>>::new(2).channel();
+    let (tx, mut rx) = <Array<1, _, UB>>::new(2).channel();
     let tx2 = tx.clone();
     assert!(!rx.is_closed());
     tx.try_send(42).unwrap();
@@ -132,7 +145,7 @@ fn rx_drop_closes<const UB: bool>(
     #[values(FALSE, TRUE)] ub: Bool<UB>,
 ) {
     let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(2).channel::<usize>();
+    let (tx, rx) = <Array<1, _, UB>>::new(2).channel::<usize>();
     assert!(!tx.is_closed());
     drop(rx);
     assert!(tx.is_closed());
@@ -147,7 +160,7 @@ fn tx_drop_while_recv_waiting<const UB: bool>(
     #[values(FALSE, TRUE)] ub: Bool<UB>,
 ) {
     let _ = ub;
-    let (tx, mut rx) = <Array<_, UB>>::new(1).channel::<usize>();
+    let (tx, mut rx) = <Array<1, _, UB>>::new(1).channel::<usize>();
     let recv = std::thread::spawn(move || rx.recv2(sync));
     drop(tx);
     assert_eq!(recv.join().unwrap(), Err(RecvError));
@@ -160,7 +173,7 @@ fn rx_drop_while_send_waiting<const UB: bool>(
     #[values(FALSE, TRUE)] ub: Bool<UB>,
 ) {
     let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(1).channel();
+    let (tx, rx) = <Array<1, _, UB>>::new(1).channel();
     tx.try_send(0).unwrap();
     let send = std::thread::spawn(move || tx.send2(1, sync));
     drop(rx);
@@ -169,13 +182,14 @@ fn rx_drop_while_send_waiting<const UB: bool>(
 
 // Closing the channel concurrently with sends; all messages are either received or returned as errors.
 #[rstest]
-fn concurrent_close<const UB: bool>(
+fn concurrent_close<const BS: usize, const UB: bool>(
     #[values(false, true)] sync: bool,
+    #[values(ONE, TWO)] bs: Usize<BS>,
     #[values(FALSE, TRUE)] ub: Bool<UB>,
 ) {
-    let _ = ub;
-    let (tx, mut rx) = <Array<_, UB>>::new(2).channel();
-    let mut values = std::thread::scope(|s| {
+    let _ = (bs, ub);
+    let (tx, mut rx) = <Array<BS, _, UB>>::new(2).channel();
+    let mut values = thread::scope(|s| {
         let s1 = s.spawn(|| tx.send2(0, sync));
         let s2 = s.spawn(|| tx.send2(1, sync));
         let s3 = s.spawn(|| tx.send2(2, sync));
@@ -200,7 +214,7 @@ fn send_future_cancel<const UB: bool>(
     #[values(false, true)] take: bool,
 ) {
     let _ = ub;
-    let (tx, mut rx) = <Array<_, UB>>::new(1).channel();
+    let (tx, mut rx) = <Array<1, _, UB>>::new(1).channel();
     tx.try_send(0).unwrap();
     {
         let mut fut = pin!(tx.send(1));
@@ -218,7 +232,7 @@ fn send_future_cancel<const UB: bool>(
 #[rstest]
 fn send_future_cancel_wakes_next<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
     let _ = ub;
-    let (tx, mut rx) = <Array<_, UB>>::new(1).channel();
+    let (tx, mut rx) = <Array<1, _, UB>>::new(1).channel();
     tx.try_send(0).unwrap();
     let mut cx = Context::from_waker(Waker::noop());
     let mut send1 = pin!(tx.send(1));
@@ -235,7 +249,7 @@ fn send_future_cancel_wakes_next<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool
 #[rstest]
 fn recv_future_cancel<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
     let _ = ub;
-    let (tx, mut rx) = <Array<_, UB>>::new(1).channel();
+    let (tx, mut rx) = <Array<1, _, UB>>::new(1).channel();
     {
         let mut fut = pin!(rx.recv());
         let mut cx = Context::from_waker(Waker::noop());
@@ -284,10 +298,49 @@ fn drop_buffered(#[case] offset: usize, #[case] msgs: usize) {
     assert_eq!(Arc::strong_count(&arc), 1);
 }
 
+// Invalid capacities are rejected.
 #[rstest]
-#[case::zero(0)]
-#[case::overflow((usize::MAX >> (usize::BITS / 2 + 1)) + 1)]
+#[case::zero(0, ONE)]
+#[case::overflow((usize::MAX >> (usize::BITS / 2 + 1)) + 1, ONE)]
+#[case::not_multiple_of_block_size(3, TWO)]
 #[should_panic]
-fn invalid_capacity(#[case] capacity: usize) {
-    <Array>::new(capacity);
+fn invalid_capacity<const BS: usize>(#[case] capacity: usize, #[case] bs: Usize<BS>) {
+    let _ = bs;
+    <Array<BS>>::new(capacity);
+}
+
+// Capacity is reduced by partially read block.
+#[rstest]
+#[case(ONE, false)]
+#[case(TWO, true)]
+fn partial_block_withholds_capacity<const BS: usize>(#[case] bs: Usize<BS>, #[case] reduced: bool) {
+    let _ = bs;
+    let (tx, mut rx) = <Array<BS>>::new(4).channel();
+    for i in 0..4 {
+        tx.try_send(i).unwrap();
+    }
+    assert_eq!(rx.try_recv(), Ok(0));
+    assert_eq!(tx.try_send(4).is_err(), reduced);
+}
+
+// Reading the last slot of a block wakes `BLOCK_SIZE` blocked senders at once.
+#[rstest]
+fn block_completion_wakes_senders<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
+    let _ = ub;
+    let (tx, mut rx) = <Array<2>>::new(2).channel();
+    tx.try_send(0).unwrap();
+    tx.try_send(1).unwrap();
+    let mut send1 = pin!(tx.send(2));
+    let mut send2 = pin!(tx.send(3));
+    let mut cx = Context::from_waker(Waker::noop());
+    assert!(send1.as_mut().poll(&mut cx).is_pending());
+    assert!(send2.as_mut().poll(&mut cx).is_pending());
+    assert_eq!(rx.try_recv(), Ok(0));
+    assert!(send1.as_mut().poll(&mut cx).is_pending());
+    assert!(send2.as_mut().poll(&mut cx).is_pending());
+    thread::scope(|s| {
+        s.spawn(|| block_on(send1));
+        s.spawn(|| block_on(send2));
+        s.spawn(|| assert_eq!(rx.try_recv(), Ok(1)));
+    });
 }
