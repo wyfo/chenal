@@ -1,7 +1,7 @@
 use core::{
     fmt, mem,
     mem::ManuallyDrop,
-    ops::Deref,
+    ops::{Deref, DerefMut},
     panic::{RefUnwindSafe, UnwindSafe},
     pin::{Pin, pin},
     ptr::NonNull,
@@ -44,6 +44,8 @@ pub trait ChannelHalf: internal::ChannelHalf<Self::Msg, Self::Channel> {
     type Channel: Channel;
 }
 
+/// Opaque unique identifier for a channel instance. Two halves sharing the same `ChannelId`
+/// belong to the same channel.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct ChannelId(NonNull<()>);
 
@@ -478,6 +480,8 @@ impl<T, Ch: internal::Channel> Close for Chan<T, Ch> {
     }
 }
 
+/// A cloneable handle for closing a channel or observing its closure, without holding a sender
+/// or receiver half.
 #[derive(Debug, Clone)]
 pub struct CloseHandle<'a>(Arc<dyn Close + 'a>);
 
@@ -489,27 +493,33 @@ impl<'a> CloseHandle<'a> {
         unimplemented!("{chan:?}");
     }
 
+    /// Returns the channel's unique identifier.
     pub fn channel_id(&self) -> ChannelId {
         self.0.id()
     }
 
+    /// Converts this handle into a [`CloseGuard`] that closes the channel when dropped.
     pub fn close_on_drop(self) -> CloseGuard<'a> {
         CloseGuard(self.0)
     }
 
+    /// Returns a future that resolves once the channel is closed.
     pub fn closed(&self) -> ClosedFuture<'_> {
         self.0.closed()
     }
 }
 
+/// A RAII guard that closes the channel when dropped. Obtained via [`CloseHandle::close_on_drop`].
 #[derive(Debug, Clone)]
 pub struct CloseGuard<'a>(Arc<dyn Close + 'a>);
 
 impl<'a> CloseGuard<'a> {
+    /// Returns the channel's unique identifier.
     pub fn channel_id(&self) -> ChannelId {
         self.0.id()
     }
 
+    /// Disarms the guard without closing the channel.
     pub fn forget(self) {
         mem::forget(self);
     }
@@ -533,9 +543,6 @@ pub(crate) enum Half {
 
 macro_rules! channel_half {
     ($ty:ident) => {
-        pub struct $ty<T, Ch: Channel> {
-            chan: Arc<Chan<T, Ch>>,
-        }
         impl<T, Ch: Channel> Drop for $ty<T, Ch> {
             fn drop(&mut self) {
                 self.chan.drop_half(Half::$ty);
@@ -550,73 +557,6 @@ macro_rules! channel_half {
                 &self.chan
             }
         }
-    };
-}
-macro_rules! tx_methods {
-    ($ty:ident $(, $mut:tt)?) => {
-        impl<T, Ch: Channel> $ty<T, Ch> {
-            #[inline]
-            pub fn send(&$($mut)? self, msg: T) -> SendFuture<'_, T, Ch> {
-                SendFuture::new(&self.chan, msg)
-            }
-            #[cfg(feature = "blocking")]
-            tx_methods!(@ $(($mut))? send_blocking[SendError]);
-            #[cfg(feature = "blocking")]
-            tx_methods!(@ $(($mut))? send_deadline[SendTimeoutError], deadline: Instant);
-            #[cfg(feature = "blocking")]
-            tx_methods!(@ $(($mut))? send_timeout[SendTimeoutError], timeout: Duration);
-            tx_methods!(@ $(($mut))? try_send[TrySendError]);
-            pub fn is_full(&self) -> bool {
-                Ch::is_full(&self.chan)
-            }
-        }
-    };
-    (@ $(($mut:tt))? $method:ident[$err:ident] $(, $arg:ident: $arg_ty:ty)?) => {
-        #[inline]
-        pub fn $method(&$($mut)? self, msg: T, $($arg: $arg_ty)?) -> Result<(), crate::errors::$err<T>> {
-            self.chan.$method(msg, $($arg ,)?)
-        }
-    };
-}
-macro_rules! utx_methods {
-    ($ty:ident $(, $mut:tt)?) => {
-        impl<T, Ch: Channel> $ty<T, Ch> {
-            tx_methods!(@ $(($mut))? send_unbounded[SendError]);
-        }
-    };
-}
-macro_rules! rx_methods {
-    ($ty:ident $(, $mut:tt)?) => {
-        impl<T, Ch: Channel> $ty<T, Ch> {
-            #[inline]
-            pub fn recv(&$($mut)? self) -> RecvFuture<'_, T, Ch> {
-                RecvFuture::new(&self.chan)
-            }
-            #[cfg(feature = "blocking")]
-            rx_methods!(@ $(($mut))? recv_blocking[RecvError]);
-            #[cfg(feature = "blocking")]
-            rx_methods!(@ $(($mut))? recv_deadline[RecvTimeoutError], deadline: Instant);
-            #[cfg(feature = "blocking")]
-            rx_methods!(@ $(($mut))? recv_timeout[RecvTimeoutError], timeout: Duration);
-            #[cfg(feature = "blocking")]
-            pub fn iter_blocking(&$($mut)? self) -> impl Iterator<Item=T> {
-                core::iter::from_fn(|| self.recv_blocking().ok())
-            }
-            rx_methods!(@ $(($mut))? try_recv[TryRecvError]);
-            pub fn is_empty(&self) -> bool {
-                Ch::is_empty(&self.chan)
-            }
-        }
-    };
-    (@ $(($mut:tt))? $method:ident[$err:ident] $(, $arg:ident: $arg_ty:ty)?) => {
-        #[inline]
-        pub fn $method(&$($mut)? self, $($arg: $arg_ty)?) -> Result<T, crate::errors::$err> {
-            self.chan.$method($($arg ,)?)
-        }
-    };
-}
-macro_rules! common_half {
-    ($ty:ident) => {
         impl<T, Ch: Channel> ChannelHalf for $ty<T, Ch> {
             type Msg = T;
             type Channel = Ch;
@@ -626,24 +566,31 @@ macro_rules! common_half {
         impl<T, Ch: Channel> UnwindSafe for $ty<T, Ch> {}
         impl<T, Ch: Channel> RefUnwindSafe for $ty<T, Ch> {}
         impl<T, Ch: Channel> $ty<T, Ch> {
+            /// Returns `true` if the channel is closed.
             pub fn is_closed(&self) -> bool {
                 Ch::is_closed(&self.chan)
             }
+            /// Closes the channel, waking all waiting senders and receivers.
             pub fn close(&self) {
                 self.chan.close();
             }
+            /// Returns a [`CloseHandle`] that can close the channel or observe its closure
+            /// without holding this half.
             pub fn close_handle<'a>(&self) -> CloseHandle<'a>
             where
                 T: 'a,
             {
                 CloseHandle::new(self.chan.clone())
             }
+            /// Returns a unique identifier for the underlying channel.
             pub fn channel_id(&self) -> ChannelId {
                 self.chan.id()
             }
+            /// Returns a future that resolves once the channel is closed.
             pub fn closed(&self) -> ClosedFuture<'_> {
                 ClosedFuture::new(&self.chan)
             }
+            /// Returns the capacity of the bounded channel.
             pub fn capacity(&self) -> usize
             where
                 Ch: BoundedChannel,
@@ -658,6 +605,99 @@ macro_rules! common_half {
         }
     };
 }
+macro_rules! tx_half {
+    ($ty:ident $(, $mut:tt)?) => {
+        impl<T, Ch: Channel> $ty<T, Ch> {
+            /// Sends a message, waiting asynchronously if the channel is full.
+            #[inline]
+            pub fn send(&$($mut)? self, msg: T) -> SendFuture<'_, T, Ch> {
+                SendFuture::new(&self.chan, msg)
+            }
+            /// Sends a message, blocking the current thread if the channel is full.
+            #[cfg(feature = "blocking")]
+            #[inline]
+            pub fn send_blocking(&$($mut)? self, msg: T) -> Result<(), SendError<T>> {
+                self.chan.send_blocking(msg)
+            }
+            /// Sends a message, blocking until `deadline` if the channel is full.
+            #[cfg(feature = "blocking")]
+            #[inline]
+            pub fn send_deadline(&$($mut)? self, msg: T, deadline: Instant) -> Result<(), SendTimeoutError<T>> {
+                self.chan.send_deadline(msg, deadline)
+            }
+            /// Sends a message, blocking for up to `timeout` if the channel is full.
+            #[cfg(feature = "blocking")]
+            #[inline]
+            pub fn send_timeout(&$($mut)? self, msg: T, timeout: Duration) -> Result<(), SendTimeoutError<T>> {
+                self.chan.send_timeout(msg, timeout)
+            }
+            /// Attempts to send a message without waiting.
+            #[inline]
+            pub fn try_send(&$($mut)? self, msg: T) -> Result<(), TrySendError<T>> {
+                self.chan.try_send(msg)
+            }
+            /// Returns `true` if the channel is full.
+            pub fn is_full(&self) -> bool {
+                Ch::is_full(&self.chan)
+            }
+        }
+    };
+}
+macro_rules! utx_methods {
+    ($ty:ident $(, $mut:tt)?) => {
+        impl<T, Ch: Channel> $ty<T, Ch> {
+            /// Sends a message. Never blocks or returns [`TrySendError::Full`] since the channel
+            /// is unbounded.
+            #[inline]
+            pub fn send_unbounded(&$($mut)? self, msg: T) -> Result<(), SendError<T>> {
+                self.chan.send_unbounded(msg)
+            }
+        }
+    };
+}
+macro_rules! rx_half {
+    ($ty:ident $(, $mut:tt)?) => {
+        impl<T, Ch: Channel> $ty<T, Ch> {
+            /// Receives a message, waiting asynchronously if the channel is empty.
+            #[inline]
+            pub fn recv(&$($mut)? self) -> RecvFuture<'_, T, Ch> {
+                RecvFuture::new(&self.chan)
+            }
+            /// Receives a message, blocking the current thread if the channel is empty.
+            #[cfg(feature = "blocking")]
+            #[inline]
+            pub fn recv_blocking(&$($mut)? self) -> Result<T, RecvError> {
+                self.chan.recv_blocking()
+            }
+            /// Receives a message, blocking until `deadline` if the channel is empty.
+            #[cfg(feature = "blocking")]
+            #[inline]
+            pub fn recv_deadline(&$($mut)? self, deadline: Instant) -> Result<T, RecvTimeoutError> {
+                self.chan.recv_deadline(deadline)
+            }
+            /// Receives a message, blocking for up to `timeout` if the channel is empty.
+            #[cfg(feature = "blocking")]
+            #[inline]
+            pub fn recv_timeout(&$($mut)? self, timeout: Duration) -> Result<T, RecvTimeoutError> {
+                self.chan.recv_timeout(timeout)
+            }
+            /// Returns a blocking iterator that yields messages until the channel is closed.
+            #[cfg(feature = "blocking")]
+            pub fn iter_blocking(&$($mut)? self) -> impl Iterator<Item = T> {
+                core::iter::from_fn(|| self.recv_blocking().ok())
+            }
+            /// Attempts to receive a message without waiting.
+            #[inline]
+            pub fn try_recv(&$($mut)? self) -> Result<T, TryRecvError> {
+                self.chan.try_recv()
+            }
+            /// Returns `true` if the channel is empty.
+            pub fn is_empty(&self) -> bool {
+                Ch::is_empty(&self.chan)
+            }
+        }
+    };
+}
 macro_rules! cloneable_half {
     ($ty:ident) => {
         impl<T, Ch: Channel> Clone for $ty<T, Ch> {
@@ -667,6 +707,7 @@ macro_rules! cloneable_half {
             }
         }
         impl<T, Ch: Channel> $ty<T, Ch> {
+            /// Returns a [`Weak`] reference that does not prevent the channel from being closed.
             pub fn downgrade(&self) -> Weak<Self> {
                 Weak::new(self)
             }
@@ -674,34 +715,53 @@ macro_rules! cloneable_half {
     };
 }
 
+/// Single-producer sending half. Requires exclusive access (`&mut self`) to send.
+pub struct Tx<T, Ch: Channel> {
+    chan: Arc<Chan<T, Ch>>,
+}
+tx_half!(Tx, mut);
 channel_half!(Tx);
-tx_methods!(Tx, mut);
-common_half!(Tx);
 
+/// Multi-producer cloneable sending half.
+pub struct MTx<T, Ch: Channel> {
+    chan: Arc<Chan<T, Ch>>,
+}
+tx_half!(MTx);
 channel_half!(MTx);
-tx_methods!(MTx);
-common_half!(MTx);
 cloneable_half!(MTx);
 
-channel_half!(UTx);
+/// Single-producer unbounded sending half, which never blocks. Requires exclusive access (`&mut self`) to send.
+pub struct UTx<T, Ch: Channel> {
+    chan: Arc<Chan<T, Ch>>,
+}
 utx_methods!(UTx, mut);
-common_half!(UTx);
+channel_half!(UTx);
 
-channel_half!(UMTx);
+/// Multi-producer cloneable unbounded sending half, which never blocks.
+pub struct UMTx<T, Ch: Channel> {
+    chan: Arc<Chan<T, Ch>>,
+}
 utx_methods!(UMTx);
-common_half!(UMTx);
+channel_half!(UMTx);
 cloneable_half!(UMTx);
 
+/// Single-consumer receiving half. Requires exclusive access (`&mut self`) to receive.
+pub struct Rx<T, Ch: Channel> {
+    chan: Arc<Chan<T, Ch>>,
+}
+rx_half!(Rx, mut);
 channel_half!(Rx);
-rx_methods!(Rx, mut);
-common_half!(Rx);
 
+/// Multi-consumer cloneable receiving half.
+pub struct MRx<T, Ch: Channel> {
+    chan: Arc<Chan<T, Ch>>,
+}
+rx_half!(MRx);
 channel_half!(MRx);
-rx_methods!(MRx);
-common_half!(MRx);
 cloneable_half!(MRx);
 
 impl<T, Ch: Channel> Rx<T, Ch> {
+    /// Poll-based receive for use in manual [`Future`] or [`Stream`] implementations.
     pub fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Result<T, RecvError>> {
         const { assert!(size_of::<<Ch::RxWaiter as Waiter>::Wait<'static>>() == 0) };
         pin!(self.recv()).poll(cx)
@@ -716,6 +776,7 @@ impl<T, Ch: Channel> futures_core::Stream for Rx<T, Ch> {
     }
 }
 
+/// A non-owning reference to a cloneable channel half. Does not prevent the channel from closing.
 pub struct Weak<H: ChannelHalf + Clone>(pub(crate) ManuallyDrop<H>);
 
 impl<H: ChannelHalf + Clone> Deref for Weak<H> {
@@ -726,11 +787,19 @@ impl<H: ChannelHalf + Clone> Deref for Weak<H> {
     }
 }
 
+impl<H: ChannelHalf + Clone> DerefMut for Weak<H> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 impl<H: ChannelHalf + Clone> Weak<H> {
     pub(crate) fn new(end: &H) -> Self {
         Weak(ManuallyDrop::new(end.raw_clone()))
     }
 
+    /// Attempts to obtain a strong reference. Returns `None` if all strong handles have been
+    /// dropped and the channel is closed.
     pub fn upgrade(&self) -> Option<H> {
         let incr = |c| (c != 0).then(|| c + 1);
         let strong = self.0.chan().ref_cnt(H::HALF).unwrap();
