@@ -8,7 +8,7 @@ mod asm;
 mod blocking;
 pub mod capacity;
 mod channel;
-#[cfg(any(feature = "compat-tokio", feature = "compat-std"))]
+#[cfg(any(feature = "compat-tokio", feature = "compat-std", feature = "compat-tachyonix"))]
 pub mod compat;
 pub mod errors;
 mod internal;

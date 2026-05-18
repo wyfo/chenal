@@ -2,14 +2,14 @@ use alloc::vec::Vec;
 use core::{
     fmt,
     pin::pin,
-    task::{Context, Poll, ready},
+    task::{ready, Context, Poll},
 };
 
 use crate::{
-    Weak,
     compat::tokio::mpsc::error::TryRecvError,
     errors::{SendError, TrySendError},
     mpsc,
+    Weak,
 };
 
 pub mod error {
@@ -92,13 +92,11 @@ impl<T> Sender<T> {
         value: T,
         timeout: tokio::time::Duration,
     ) -> Result<(), error::SendTimeoutError<T>> {
-        let mut send_fut = pin!(self.0.send(value));
-        match tokio::time::timeout(timeout, send_fut.as_mut()).await {
+        let mut send = pin!(self.0.send(value));
+        match tokio::time::timeout(timeout, send.as_mut()).await {
             Ok(Ok(_)) => Ok(()),
             Ok(Err(SendError(v))) => Err(error::SendTimeoutError::Closed(v)),
-            Err(_) => Err(error::SendTimeoutError::Timeout(
-                send_fut.as_mut().cancel().unwrap(),
-            )),
+            Err(_) => Err(error::SendTimeoutError::Timeout(send.cancel().unwrap())),
         }
     }
 }

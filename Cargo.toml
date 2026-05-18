@@ -12,6 +12,7 @@ blocking = ["std"]
 compat-tokio = ["dep:tokio"]
 compat-tokio-time = ["compat-tokio", "tokio/time"]
 compat-std = ["blocking"]
+compat-tachyonix = []
 std = ["aiq/std", "crossbeam-utils/std"]
 stream = ["dep:futures-core"]
 
@@ -24,6 +25,7 @@ tokio = { version = "1", optional = true, default-features = false, features = [
 
 [dev-dependencies]
 futures = "0.3.32"
+futures-time = "3.1.0"
 rstest = "0.26.1"
 tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
 tokio-test = "0.4.5"
@@ -34,8 +36,16 @@ loom = { version = "0.7.2", features = ["futures"] }
 const_fn = "0.4.12"
 
 [[test]]
+name = "mpsc_array"
+required-features = ["blocking"]
+
+[[test]]
 name = "compat_std_mpsc_sync"
 required-features = ["compat-std"]
+
+[[test]]
+name = "compat_tachyonix"
+required-features = ["compat-tachyonix"]
 
 [[test]]
 name = "compat_tokio"

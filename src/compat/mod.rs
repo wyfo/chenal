@@ -6,3 +6,5 @@ pub mod tokio {
 pub mod std {
     pub mod mpsc;
 }
+#[cfg(feature = "compat-tachyonix")]
+pub mod tachyonix;
