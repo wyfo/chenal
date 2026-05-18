@@ -369,6 +369,11 @@ impl<T, Ch: internal::Channel> fmt::Debug for Chan<T, Ch> {
     }
 }
 
+/// Future returned by [`Tx::send`]/[`MTx::send`].
+///
+/// Resolves once the message has been written in the channel, or the channel is closed.
+///
+/// Message being sent can be retrieved with [`cancel`](Self::cancel), cancelling the future.
 pub struct SendFuture<'a, T, Ch: Channel> {
     chan: &'a Chan<T, Ch>,
     msg: Option<T>,
@@ -385,6 +390,7 @@ impl<'a, T, Ch: Channel> SendFuture<'a, T, Ch> {
         }
     }
 
+    /// Cancels the send, returning the message if it has not yet been sent.
     pub fn cancel(self: Pin<&mut Self>) -> Option<T> {
         unsafe { self.get_unchecked_mut() }.msg.take()
     }
@@ -410,6 +416,11 @@ impl<T, Ch: Channel> Future for SendFuture<'_, T, Ch> {
     }
 }
 
+/// Future returned by [`Rx::recv`]/[`MRx::recv`].
+///
+/// Resolves once a message is available, or the channel is closed.
+///
+/// The future can be reused to receive subsequent messages, as a [`Stream`].
 pub struct RecvFuture<'a, T, Ch: Channel> {
     chan: &'a Chan<T, Ch>,
     wait: <Ch::RxWaiter as Waiter>::Wait<'a>,
@@ -445,6 +456,9 @@ impl<T, Ch: Channel> futures_core::Stream for RecvFuture<'_, T, Ch> {
     }
 }
 
+/// Future returned by [`CloseHandle::closed`] and similar methods.
+///
+/// Resolves once the channel is closed.
 pub struct ClosedFuture<'a>(Wait<&'a aiq::WaitQueue>);
 
 impl<'a> ClosedFuture<'a> {
