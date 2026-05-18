@@ -11,17 +11,22 @@ use crate::{
     loom::{thread, thread::Thread},
 };
 
+/// The operation either timed out or the channel is closed.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SendTimeoutError<T> {
+    /// The channel is closed.
     Closed(T),
+    /// The operation timed out.
     Timeout(T),
 }
 
 impl<T> SendTimeoutError<T> {
+    /// Returns `true` if the channel was closed.
     pub fn is_closed(&self) -> bool {
         matches!(self, Self::Closed(_))
     }
 
+    /// Returns `true` if the operation timed out.
     pub fn is_timeout(&self) -> bool {
         matches!(self, Self::Timeout(_))
     }
@@ -61,17 +66,22 @@ impl<T> From<(TryAcquireError, T)> for SendTimeoutError<T> {
     }
 }
 
+/// The operation either timed out or the channel is closed and empty.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum RecvTimeoutError {
+    /// The channel is closed and empty.
     Closed,
+    /// The operation timed out.
     Timeout,
 }
 
 impl RecvTimeoutError {
+    /// Returns `true` if the channel was closed.
     pub fn is_closed(&self) -> bool {
         matches!(self, Self::Closed)
     }
 
+    /// Returns `true` if the operation timed out.
     pub fn is_timeout(&self) -> bool {
         matches!(self, Self::Timeout)
     }

@@ -1,3 +1,4 @@
+//! Error types.
 use core::{error, fmt, hint::unreachable_unchecked};
 
 #[cfg(feature = "blocking")]
@@ -9,17 +10,22 @@ pub(crate) enum TryAcquireError {
 }
 pub(crate) struct AcquireError;
 
+/// The channel is either full or closed.
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum TrySendError<T> {
+    /// The channel is closed.
     Closed(T),
+    /// The channel is full.
     Full(T),
 }
 
 impl<T> TrySendError<T> {
+    /// Returns `true` if the channel is closed.
     pub fn is_closed(&self) -> bool {
         matches!(self, Self::Closed(_))
     }
 
+    /// Returns `true` if the channel is full.
     pub fn is_full(&self) -> bool {
         matches!(self, Self::Full(_))
     }
@@ -56,6 +62,7 @@ impl<T> From<(TryAcquireError, T)> for TrySendError<T> {
     }
 }
 
+/// The channel is closed.
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub struct SendError<T>(pub T);
 
@@ -96,17 +103,22 @@ impl<T> From<(TryAcquireError, T)> for SendError<T> {
     }
 }
 
+/// The channel is either empty or closed (and empty).
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum TryRecvError {
+    /// The channel is closed and empty.
     Closed,
+    /// The channel is empty but not closed.
     Empty,
 }
 
 impl TryRecvError {
+    /// Returns `true` if the channel is closed.
     pub fn is_closed(&self) -> bool {
         matches!(self, Self::Closed)
     }
 
+    /// Returns `true` if the channel is empty.
     pub fn is_empty(&self) -> bool {
         matches!(self, Self::Empty)
     }
@@ -130,6 +142,7 @@ impl From<TryAcquireError> for TryRecvError {
     }
 }
 
+/// The channel is closed and empty.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct RecvError;
 
