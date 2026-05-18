@@ -9,7 +9,7 @@ use std::thread;
 #[cfg(not(miri))]
 use std::time::Duration;
 
-use chenal::compat::tachyonix::{channel, RecvError, SendError, TryRecvError, TrySendError};
+use chenal::compat::tachyonix::{RecvError, SendError, TryRecvError, TrySendError, channel};
 #[cfg(not(miri))]
 use chenal::compat::tachyonix::{RecvTimeoutError, SendTimeoutError};
 use futures::{executor::block_on, pin_mut, task::noop_waker};
