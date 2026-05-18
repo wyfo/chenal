@@ -16,7 +16,7 @@ use spmc_waker::SpmcWaker;
 use crate::{
     Channel, DEFAULT_UNBOUNDED_BACKOFF, MTx, Rx,
     capacity::{Capacity, Slots},
-    channel::Chan,
+    channel::{BoundedChannel, Chan},
     errors::{SendError, TryAcquireError},
     internal,
     loom::{AtomicUsizeExt, UnsafeCellExt, cell::UnsafeCell},
@@ -51,6 +51,11 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> Channel
 {
     type TxHalf<T> = MTx<T, Self>;
     type RxHalf<T> = Rx<T, Self>;
+}
+
+impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> BoundedChannel
+    for Array<C, UNBOUNDED_BACKOFF, SP>
+{
 }
 
 fn slot_mask(capacity: usize) -> usize {
@@ -280,30 +285,5 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
         };
         chan.rx_shared_state.store(new_head, SeqCst);
         msg
-    }
-}
-
-#[cfg(feature = "blocking")]
-#[cfg(test)]
-mod tests {
-    extern crate std;
-
-    use alloc::vec::Vec;
-
-    use crate::{channel::Channel, mpsc::Array};
-
-    #[test]
-    fn it_works() {
-        let (tx, mut rx) = <Array>::new(2).channel();
-        let mut values = std::thread::scope(|s| {
-            s.spawn(|| tx.send_blocking(0));
-            s.spawn(|| tx.send_blocking(1));
-            s.spawn(|| tx.send_blocking(2));
-            (0..3)
-                .map(|_| rx.recv_blocking().unwrap())
-                .collect::<Vec<_>>()
-        });
-        values.sort_unstable();
-        assert_eq!(values, [0, 1, 2]);
     }
 }

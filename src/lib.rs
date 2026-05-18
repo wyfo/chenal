@@ -25,7 +25,7 @@ pub use channel::{
 };
 
 pub mod futures {
-    pub use crate::channel::{RecvFuture, SendFuture};
+    pub use crate::channel::{ClosedFuture, RecvFuture, SendFuture};
 }
 
 /// Default value for the `UNBOUNDED_BACKOFF` MPSC/MPMC channel parameter.

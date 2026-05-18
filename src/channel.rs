@@ -34,6 +34,9 @@ pub trait Channel: internal::Channel {
         (Self::TxHalf::new(chan.clone()), Self::RxHalf::new(chan))
     }
 }
+
+pub trait BoundedChannel: Channel {}
+
 #[expect(private_bounds)]
 pub trait ChannelHalf: internal::ChannelHalf<Self::Msg, Self::Channel> {
     type Msg;
@@ -640,6 +643,12 @@ macro_rules! common_half {
             }
             pub fn closed(&self) -> ClosedFuture<'_> {
                 ClosedFuture::new(&self.chan)
+            }
+            pub fn capacity(&self) -> usize
+            where
+                Ch: BoundedChannel,
+            {
+                Ch::capacity(&self.chan).unwrap()
             }
         }
         impl<T, Ch: Channel> core::fmt::Debug for $ty<T, Ch> {

@@ -251,6 +251,8 @@ fn send_future_poll_after_completion(#[values(false, true)] cancel: bool) {
 fn drop_buffered(#[case] offset: usize, #[case] msgs: usize) {
     let arc = Arc::new(());
     let (tx, mut rx) = <Array>::new(4).channel();
+    assert_eq!(tx.capacity(), 4);
+    assert_eq!(rx.capacity(), 4);
     for _ in 0..offset {
         tx.try_send(arc.clone()).unwrap();
         rx.try_recv().unwrap();
