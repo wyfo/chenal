@@ -59,6 +59,7 @@ pub(crate) trait Channel: Sized + 'static {
     type TxWaiter: Waiter;
     type TxRefCount: RefCount;
     fn tx_init_state<T>(storage: &Self::Storage<T>) -> Self::TxAtomicState<T>;
+    fn is_full<T>(chan: &Chan<T, Self>) -> bool;
     fn tx_acquire_slot<T>(chan: &Chan<T, Self>) -> Result<Self::TxSlot<T>, Self::TxState<T>>;
     fn tx_acquire_slot_cold<T>(
         chan: &Chan<T, Self>,
@@ -77,6 +78,7 @@ pub(crate) trait Channel: Sized + 'static {
     type RxRefCount: RefCount;
     const WAKE_TX_AFTER_READ: bool = true;
     fn rx_init_state<T>(storage: &Self::Storage<T>) -> Self::RxAtomicState<T>;
+    fn is_empty<T>(chan: &Chan<T, Self>) -> bool;
     fn rx_acquire_slot<T>(chan: &Chan<T, Self>) -> Result<Self::RxSlot<T>, Self::RxState<T>>;
     fn rx_acquire_slot_cold<T>(
         chan: &Chan<T, Self>,

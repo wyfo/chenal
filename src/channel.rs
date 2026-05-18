@@ -563,7 +563,6 @@ macro_rules! channel_half {
 macro_rules! tx_methods {
     ($ty:ident $(, $mut:tt)?) => {
         impl<T, Ch: Channel> $ty<T, Ch> {
-            tx_methods!(@ $(($mut))? try_send[TrySendError]);
             #[inline]
             pub fn send(&$($mut)? self, msg: T) -> SendFuture<'_, T, Ch> {
                 SendFuture::new(&self.chan, msg)
@@ -574,6 +573,10 @@ macro_rules! tx_methods {
             tx_methods!(@ $(($mut))? send_deadline[SendTimeoutError], deadline: Instant);
             #[cfg(feature = "blocking")]
             tx_methods!(@ $(($mut))? send_timeout[SendTimeoutError], timeout: Duration);
+            tx_methods!(@ $(($mut))? try_send[TrySendError]);
+            pub fn is_full(&self) -> bool {
+                Ch::is_full(&self.chan)
+            }
         }
     };
     (@ $(($mut:tt))? $method:ident[$err:ident] $(, $arg:ident: $arg_ty:ty)?) => {
@@ -593,7 +596,6 @@ macro_rules! utx_methods {
 macro_rules! rx_methods {
     ($ty:ident $(, $mut:tt)?) => {
         impl<T, Ch: Channel> $ty<T, Ch> {
-            rx_methods!(@ $(($mut))? try_recv[TryRecvError]);
             #[inline]
             pub fn recv(&$($mut)? self) -> RecvFuture<'_, T, Ch> {
                 RecvFuture::new(&self.chan)
@@ -607,6 +609,10 @@ macro_rules! rx_methods {
             #[cfg(feature = "blocking")]
             pub fn iter_blocking(&$($mut)? self) -> impl Iterator<Item=T> {
                 core::iter::from_fn(|| self.recv_blocking().ok())
+            }
+            rx_methods!(@ $(($mut))? try_recv[TryRecvError]);
+            pub fn is_empty(&self) -> bool {
+                Ch::is_empty(&self.chan)
             }
         }
     };

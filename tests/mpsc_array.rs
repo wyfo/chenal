@@ -85,7 +85,9 @@ fn wrap_around<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
 fn try_send_full<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
     let _ = ub;
     let (tx, mut rx) = <Array<_, UB>>::new(1).channel();
+    assert!(!tx.is_full());
     tx.try_send(0).unwrap();
+    assert!(tx.is_full());
     assert_eq!(tx.try_send(1), Err(TrySendError::Full(1)));
     assert_eq!(rx.try_recv(), Ok(0));
     tx.try_send(1).unwrap();
@@ -97,8 +99,10 @@ fn try_send_full<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
 fn try_recv_empty<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
     let _ = ub;
     let (tx, mut rx) = <Array<_, UB>>::new(1).channel::<usize>();
+    assert!(rx.is_empty());
     assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
     tx.try_send(0).unwrap();
+    assert!(!rx.is_empty());
     assert_eq!(rx.try_recv(), Ok(0));
     assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
 }

@@ -144,6 +144,13 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
         AtomicUsize::new(tail | (max_tail << HB_SHIFT))
     }
 
+    fn is_full<T>(chan: &Chan<T, Self>) -> bool {
+        let state = chan.tx_shared_state.load(Relaxed);
+        let tail = state & LB;
+        let max_tail = state >> HB_SHIFT;
+        tail == max_tail
+    }
+
     fn tx_acquire_slot<T>(chan: &Chan<T, Self>) -> Result<Self::TxSlot<T>, Self::TxState<T>> {
         let state = chan.tx_shared_state.load(Relaxed);
         let tail = state & LB;
@@ -225,6 +232,13 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
 
     fn rx_init_state<T>(_storage: &Self::Storage<T>) -> Self::RxAtomicState<T> {
         AtomicUsize::new(0)
+    }
+
+    fn is_empty<T>(chan: &Chan<T, Self>) -> bool {
+        let head = chan.rx_shared_state.load(Relaxed);
+        let head_idx = head & chan.slot_mask();
+        let slot = unsafe { chan.slots.get_unchecked(head_idx) };
+        slot.stamp.load(Acquire) != head
     }
 
     fn rx_acquire_slot<T>(chan: &Chan<T, Self>) -> Result<Self::RxSlot<T>, Self::RxState<T>> {
