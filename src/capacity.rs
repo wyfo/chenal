@@ -25,7 +25,6 @@ pub(crate) struct Slots<S, C: internal::Capacity> {
 
 impl<S, C: internal::Capacity> Slots<S, C> {
     pub(crate) fn new(capacity: C, slot: impl FnMut(usize) -> S) -> Self {
-        assert_ne!(capacity.get(), 0, "capacity must be greater than 0");
         let slots = (0..capacity.get()).map(slot).collect::<Box<[_]>>();
         Self {
             capacity,

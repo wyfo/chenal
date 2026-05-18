@@ -41,6 +41,11 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives>
 {
     /// Constructs a new `Array` with the specified capacity.
     pub fn new(capacity: C) -> Self {
+        assert!(capacity.get() > 0, "capacity must not be zero");
+        assert!(
+            capacity.get() <= (usize::MAX & LB) >> 1,
+            "capacity overflow"
+        );
         Self {
             capacity,
             sync: PhantomData,

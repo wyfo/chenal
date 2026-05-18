@@ -283,3 +283,11 @@ fn drop_buffered(#[case] offset: usize, #[case] msgs: usize) {
     drop((tx, rx));
     assert_eq!(Arc::strong_count(&arc), 1);
 }
+
+#[rstest]
+#[case::zero(0)]
+#[case::overflow((usize::MAX >> (usize::BITS / 2 + 1)) + 1)]
+#[should_panic]
+fn invalid_capacity(#[case] capacity: usize) {
+    <Array>::new(capacity);
+}
