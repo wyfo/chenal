@@ -2,6 +2,7 @@ use core::{
     fmt, mem,
     mem::ManuallyDrop,
     ops::Deref,
+    panic::{RefUnwindSafe, UnwindSafe},
     pin::Pin,
     ptr::NonNull,
     sync::atomic::{
@@ -114,6 +115,8 @@ pub(crate) struct Chan<T, Ch: internal::Channel> {
 
 unsafe impl<T: Send, Ch: internal::Channel> Send for Chan<T, Ch> {}
 unsafe impl<T: Send, Ch: internal::Channel> Sync for Chan<T, Ch> {}
+impl<T, Ch: internal::Channel> UnwindSafe for Chan<T, Ch> {}
+impl<T, Ch: internal::Channel> RefUnwindSafe for Chan<T, Ch> {}
 
 impl<T, Ch: internal::Channel> Chan<T, Ch> {
     pub(crate) fn new(channel: Ch) -> Self {
@@ -620,6 +623,8 @@ macro_rules! common_half {
         }
         unsafe impl<T: Send, Ch: Channel> Send for $ty<T, Ch> {}
         unsafe impl<T: Send, Ch: Channel> Sync for $ty<T, Ch> {}
+        impl<T, Ch: Channel> UnwindSafe for $ty<T, Ch> {}
+        impl<T, Ch: Channel> RefUnwindSafe for $ty<T, Ch> {}
         impl<T, Ch: Channel> $ty<T, Ch> {
             pub fn is_closed(&self) -> bool {
                 Ch::is_closed(&self.chan)
@@ -722,5 +727,11 @@ impl<H: ChannelHalf + Clone> Weak<H> {
 impl<H: ChannelHalf + Clone> Clone for Weak<H> {
     fn clone(&self) -> Self {
         Self(ManuallyDrop::new(self.0.raw_clone()))
+    }
+}
+
+impl<H: ChannelHalf + fmt::Debug + Clone> fmt::Debug for Weak<H> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_tuple("Weak").field(&self.0).finish()
     }
 }

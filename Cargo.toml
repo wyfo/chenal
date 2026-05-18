@@ -9,6 +9,9 @@ all-features = true
 [features]
 default = ["std"]
 blocking = ["std"]
+compat-tokio = ["dep:tokio"]
+compat-tokio-time = ["compat-tokio", "tokio/time"]
+compat-std = ["blocking"]
 std = ["aiq/std", "crossbeam-utils/std"]
 stream = ["dep:futures-core"]
 
@@ -17,14 +20,26 @@ aiq = { path = "../aiq", default-features = false, features = ["wait-queue"] }
 crossbeam-utils = { version = "0.8", default-features = false }
 futures-core = { version = "0.3", optional = true }
 spmc-waker = { path = "../spmc_waker" }
+tokio = { version = "1", optional = true, default-features = false, features = ["rt"] }
 
 [dev-dependencies]
 futures = "0.3.32"
 rstest = "0.26.1"
+tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
+tokio-test = "0.4.5"
+tokio-stream = "0.1.18"
 
 [target.'cfg(loom)'.dependencies]
 loom = { version = "0.7.2", features = ["futures"] }
 const_fn = "0.4.12"
+
+[[test]]
+name = "compat_std_mpsc_sync"
+required-features = ["compat-std"]
+
+[[test]]
+name = "compat_tokio"
+required-features = ["blocking", "compat-tokio"]
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }

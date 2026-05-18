@@ -8,6 +8,8 @@ mod asm;
 mod blocking;
 pub mod capacity;
 mod channel;
+#[cfg(any(feature = "compat-tokio", feature = "compat-std"))]
+pub mod compat;
 pub mod errors;
 mod internal;
 mod loom;
