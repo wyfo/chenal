@@ -1,7 +1,7 @@
 use core::{
     fmt,
     future::poll_fn,
-    pin::{pin, Pin},
+    pin::{Pin, pin},
     task::Poll,
 };
 

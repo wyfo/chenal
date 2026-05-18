@@ -2,14 +2,14 @@ use alloc::vec::Vec;
 use core::{
     fmt,
     pin::pin,
-    task::{ready, Context, Poll},
+    task::{Context, Poll, ready},
 };
 
 use crate::{
+    Weak,
     compat::tokio::mpsc::error::TryRecvError,
     errors::{SendError, TrySendError},
     mpsc,
-    Weak,
 };
 
 pub mod error {
@@ -183,7 +183,7 @@ impl<T> Receiver<T> {
     }
 
     pub fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Option<T>> {
-        pin!(self.0.recv()).poll(cx).map(Result::ok)
+        self.0.poll_recv(cx).map(Result::ok)
     }
 
     pub fn poll_recv_many(

@@ -3,7 +3,7 @@ use core::{
     mem::ManuallyDrop,
     ops::Deref,
     panic::{RefUnwindSafe, UnwindSafe},
-    pin::Pin,
+    pin::{Pin, pin},
     ptr::NonNull,
     sync::atomic::{
         AtomicUsize,
@@ -700,6 +700,21 @@ channel_half!(MRx);
 rx_methods!(MRx);
 common_half!(MRx);
 cloneable_half!(MRx);
+
+impl<T, Ch: Channel> Rx<T, Ch> {
+    pub fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Result<T, RecvError>> {
+        const { assert!(size_of::<<Ch::RxWaiter as Waiter>::Wait<'static>>() == 0) };
+        pin!(self.recv()).poll(cx)
+    }
+}
+
+#[cfg(feature = "stream")]
+impl<T, Ch: Channel> futures_core::Stream for Rx<T, Ch> {
+    type Item = T;
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.poll_recv(cx).map(Result::ok)
+    }
+}
 
 pub struct Weak<H: ChannelHalf + Clone>(pub(crate) ManuallyDrop<H>);
 
