@@ -30,7 +30,7 @@ pub use channel::{
     Channel, ChannelHalf, ChannelId, CloseGuard, CloseHandle, MRx, MTx, Rx, Tx, UMTx, UTx, Weak,
 };
 
-/// Future types
+/// Future types.
 pub mod futures {
     pub use crate::channel::{ClosedFuture, RecvFuture, SendFuture};
 }
