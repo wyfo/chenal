@@ -47,7 +47,7 @@ On the other hand, it's one of the least performant MPSC, especially compared to
 
 ### [`kanal`](https://docs.rs/kanal/latest/kanal/)
 
-`kanal` is a MPMC channel which pretends to be faster than any other competitor. However, it uses a lock-based algorithm, which means every operation performs at least two atomic RMW operations, vs. one for `chenal`, without talking about other (spin-)lock drawbacks. In `kanal`'s own benchmark, `chenal` is also up to 10x faster.
+`kanal` is a MPMC channel which pretends to be faster than any other competitor. However, it uses a lock-based algorithm, which means every operation performs at least two atomic RMW operations, vs. one for `chenal`, without talking about other (spin-)lock drawbacks. In `kanal`'s own benchmark, `chenal` is also 3x faster on average.
 
 `kanal` is also not async-friendly, as its operations are not [cancel-safe](https://github.com/fereidani/kanal/issues/24).
 
@@ -59,7 +59,7 @@ However, while `chenal` is carefully designed around hot path inlining, `crossfi
 
 `crossfire` also overuses backoff loops: calling `recv` on an empty channel will spin and yield to the OS many times before giving up and park. While it *might* be good for highly contented benchmark, it adds latency and disrupt the scheduler on each operation. 
 
-Speaking about benchmarks, `crossfire` claims to have "pushed the speed to a level no one has gone before", nothing less. Yet, adding the same `try_xxx` loops before blocking operations makes `chenal` overtake `crossfire` in all highly contended benchmarks. And it performs significantly better without the loops when the capacity is large enough. `tachyonix`'s benchmarks, which are more realistic, also give a clear advantage to `chenal` compared to `crossfire`.
+Speaking about benchmarks, `crossfire` claims to have "pushed the speed to a level no one has gone before". But this was before `chenal`, as adding the same `try_xxx` loops before blocking operations makes it overtake `crossfire` in all highly contended benchmarks. And it performs significantly better without the loops when the capacity is large enough. `tachyonix`'s benchmarks, which are more realistic, also give a clear advantage to `chenal` compared to `crossfire`.
 
 Last but not least, while both algorithms are similar and use an unbounded backoff loop, because `SeqCst` store are too expensive on x86_64, `chenal` algorithm is optimized to not use this unbounded backoff loop on other architectures like aarch64. 
 
