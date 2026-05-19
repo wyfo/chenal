@@ -428,7 +428,7 @@ impl<T, Ch: Channel> Future for SendFuture<'_, T, Ch> {
 ///
 /// Resolves once a message is available, or the channel is closed.
 ///
-/// The future can be reused to receive subsequent messages, as a [`Stream`].
+/// The future can be reused to receive subsequent messages, as a [`Stream`](futures_core::stream::Stream).
 pub struct RecvFuture<'a, T, Ch: Channel> {
     chan: &'a Chan<T, Ch>,
     wait: <Ch::RxWaiter as Waiter>::Wait<'a>,
@@ -783,7 +783,8 @@ channel_half!(MRx);
 cloneable_half!(MRx);
 
 impl<T, Ch: Channel> Rx<T, Ch> {
-    /// Poll-based receive for use in manual [`Future`] or [`Stream`] implementations.
+    /// Poll-based receive for use in manual [`Future`] or
+    /// [`Stream`](futures_core::stream::Stream) implementations.
     pub fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Result<T, RecvError>> {
         const { assert!(size_of::<<Ch::RxWaiter as Waiter>::Wait<'static>>() == 0) };
         pin!(self.recv()).poll(cx)
