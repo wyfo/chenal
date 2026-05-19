@@ -22,7 +22,7 @@ jobs:
         run: cargo test ${{ matrix.features }}
       - name: check doc
         if: matrix.features == '--all-features'
-        run: cargo doc
+        run: cargo doc ${{ matrix.features }}
         env:
           RUSTDOCFLAGS: "-Dwarnings"
 
