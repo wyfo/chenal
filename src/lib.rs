@@ -6,7 +6,6 @@
 #![no_std]
 extern crate alloc;
 
-mod array;
 #[cfg(feature = "blocking")]
 mod blocking;
 pub mod capacity;
