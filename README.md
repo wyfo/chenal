@@ -1,5 +1,10 @@
 # chenal
 
+[![crates.io](https://img.shields.io/crates/v/chenal.svg)](https://crates.io/crates/chenal)
+[![docs.rs](https://docs.rs/chenal/badge.svg)](https://docs.rs/chenal)
+[![License](https://img.shields.io/crates/l/chenal.svg)](LICENSE-MIT)
+[![MSRV](https://img.shields.io/badge/rustc-1.87+-blue.svg)](https://blog.rust-lang.org/2025/05/15/Rust-1.87.0/)
+
 Performant channel implementations.
 
 *chenal is a French noun which translates as channel in English.* 
