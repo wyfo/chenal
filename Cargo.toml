@@ -1,6 +1,6 @@
 [package]
 name = "chenal"
-version = "0.1.0"
+version = "0.1.0-alpha"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/wyfo/chenal"
@@ -24,10 +24,10 @@ stream = ["dep:futures-core"]
 
 
 [dependencies]
-aiq = { git = "https://github.com/wyfo/aiq", default-features = false, features = ["wait-queue"] }
+aiq = { version = "0.1.0-alpha.1", default-features = false, features = ["wait-queue"] }
 crossbeam-utils = { version = "0.8", default-features = false }
 futures-core = { version = "0.3", optional = true }
-spmc-waker = { git = "https://github.com/wyfo/spmc-waker" }
+spmc-waker = "0.1.0-alpha"
 tokio = { version = "1", optional = true, default-features = false, features = ["rt"] }
 
 [dev-dependencies]
