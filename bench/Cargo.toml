@@ -1,0 +1,22 @@
+[package]
+name = "mpsc-bench"
+version = "0.1.0"
+edition = "2024"
+
+[[bench]]
+name = "mpsc"
+harness = false
+
+[dependencies]
+async-channel = "2.5.0"
+chenal = { path = "..", features = ["blocking"] }
+criterion = { version = "0.8.2", features = ["async_tokio"] }
+crossbeam-channel = "0.5.15"
+crossbeam-utils = "0.8.21"
+crossfire = "3.1.7"
+flume = "0.12"
+futures = "0.3.32"
+kanal = "0.1.1"
+postage = "0.5.0"
+tachyonix = "0.3.1"
+tokio = { version = "1.51.1", features = ["sync", "rt-multi-thread", "macros"] }

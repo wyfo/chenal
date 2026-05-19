@@ -59,7 +59,7 @@ However, while `chenal` is carefully designed around hot path inlining, `crossfi
 
 `crossfire` also overuses backoff loops: calling `recv` on an empty channel will spin and yield to the OS many times before giving up and park. While it *might* be good for highly contented benchmark, it adds latency and disrupt the scheduler on each operation. 
 
-Speaking about benchmarks, `crossfire` claims to have "pushed the speed to a level no one has gone before", nothing less. Yet `chenal` performs significantly better on aarch64 like Apple M3. On x86_64, overused backoff loops are more effective, but adding the same `try_xxx` loops before blocking operations makes `chenal` overtake it.
+Speaking about benchmarks, `crossfire` claims to have "pushed the speed to a level no one has gone before", nothing less. Yet, adding the same `try_xxx` loops before blocking operations makes `chenal` overtake `crossfire` in all highly contended benchmarks. And it performs significantly better without the loops when the capacity is large enough. `tachyonix`'s benchmarks, which are more realistic, also give a clear advantage to `chenal` compared to `crossfire`.
 
 Last but not least, while both algorithms are similar and use an unbounded backoff loop, because `SeqCst` store are too expensive on x86_64, `chenal` algorithm is optimized to not use this unbounded backoff loop on other architectures like aarch64. 
 
