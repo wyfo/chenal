@@ -825,7 +825,8 @@ impl<H: ChannelHalf + Clone> Weak<H> {
     pub fn upgrade(&self) -> Option<H> {
         let incr = |c| (c != 0).then(|| c + 1);
         let strong = self.0.chan().ref_cnt(H::HALF).unwrap();
-        strong.try_update(Relaxed, Acquire, incr).ok()?;
+        #[allow(deprecated)]
+        strong.fetch_update(Relaxed, Acquire, incr).ok()?;
         Some(self.0.raw_clone())
     }
 }
