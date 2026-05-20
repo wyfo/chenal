@@ -25,7 +25,8 @@ mod waiter;
 /// Reexport of [`aiq::sync`].
 pub use aiq::sync;
 pub use channel::{
-    Channel, ChannelHalf, ChannelId, CloseGuard, CloseHandle, MRx, MTx, Rx, Tx, UMTx, UTx, Weak,
+    BoundedChannel, Channel, ChannelHalf, ChannelId, CloseGuard, CloseHandle, MRx, MTx, Rx, Tx,
+    UMTx, UTx, Weak,
 };
 
 /// Future types.
