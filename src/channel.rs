@@ -113,8 +113,8 @@ impl<T, Ch: internal::Channel> Operation<T, Ch> for RecvMsg {
 // fields are duplicated instead of using an intermediate struct
 // to keep them packed on the same cache line
 pub(crate) struct Chan<T, Ch: internal::Channel> {
-    pub(crate) tx_shared_state: CachePadded<Ch::TxAtomicState<T>>,
-    pub(crate) rx_shared_state: CachePadded<Ch::RxAtomicState<T>>,
+    pub(crate) tx_state: CachePadded<Ch::TxAtomicState<T>>,
+    pub(crate) rx_state: CachePadded<Ch::RxAtomicState<T>>,
     pub(crate) storage: Ch::Storage<T>,
     pub(crate) tx_waiter: Ch::TxWaiter,
     pub(crate) rx_waiter: Ch::RxWaiter,
@@ -132,8 +132,8 @@ impl<T, Ch: internal::Channel> Chan<T, Ch> {
     pub(crate) fn new(channel: Ch) -> Self {
         let storage = channel.storage();
         Self {
-            tx_shared_state: Ch::tx_init_state(&storage).into(),
-            rx_shared_state: Ch::rx_init_state(&storage).into(),
+            tx_state: Ch::tx_init_state(&storage).into(),
+            rx_state: Ch::rx_init_state(&storage).into(),
             storage,
             tx_waiter: Default::default(),
             rx_waiter: Default::default(),

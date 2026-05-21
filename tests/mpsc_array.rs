@@ -306,7 +306,7 @@ fn drop_buffered(#[case] offset: usize, #[case] msgs: usize) {
 #[should_panic]
 fn invalid_capacity<const BS: usize>(#[case] capacity: usize, #[case] bs: Usize<BS>) {
     let _ = bs;
-    <Array<BS>>::new(capacity);
+    <Array<BS>>::new(capacity).channel::<()>();
 }
 
 // Capacity is reduced by partially read block.

@@ -15,16 +15,14 @@ use spmc_waker::SpmcWaker;
 
 use crate::{
     Channel, DEFAULT_UNBOUNDED_BACKOFF, MTx, Rx,
-    capacity::{Capacity, Slots},
+    array::{HB_SHIFT, LB, Slots},
+    capacity::Capacity,
     channel::{BoundedChannel, Chan},
     errors::{SendError, TryAcquireError},
     internal,
     loom::{AtomicUsizeExt, UnsafeCellExt, cell::UnsafeCell},
     sync::{DefaultSyncPrimitives, SyncPrimitives},
 };
-
-const LB: usize = usize::MAX >> HB_SHIFT;
-const HB_SHIFT: u32 = usize::BITS / 2;
 
 /// Bounded channel implementation.
 ///
@@ -54,11 +52,6 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
                 "`BLOCK_SIZE` must be a power of 2"
             );
         }
-        assert!(capacity.get() > 0, "capacity must not be zero");
-        assert!(
-            capacity.get() <= (usize::MAX & LB) >> 1,
-            "capacity overflow"
-        );
         assert!(
             capacity.get().is_multiple_of(BLOCK_SIZE),
             "capacity must be a multiple of `BLOCK_SIZE`"
@@ -82,74 +75,38 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
 {
 }
 
-fn slot_mask(capacity: usize) -> usize {
-    (capacity.next_power_of_two() << 1).wrapping_sub(1)
-}
-
 pub(crate) struct Slot<T> {
     msg: UnsafeCell<MaybeUninit<T>>,
     stamp: AtomicUsize,
 }
 
-pub(crate) struct Storage<T, C: Capacity> {
-    slots: Slots<Slot<T>, C>,
-    slot_mask: C::Mask,
-}
-
-impl<T, C: Capacity> Storage<T, C> {
-    fn capacity(&self) -> usize {
-        self.slots.capacity()
-    }
-
-    fn slot_mask(&self) -> usize {
-        C::get_mask(self.slot_mask, slot_mask)
-    }
-
-    fn closed_flag(&self) -> usize {
-        (self.slot_mask() >> 1) + 1
-    }
-}
-
 impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives>
     internal::Channel for Array<BLOCK_SIZE, C, UNBOUNDED_BACKOFF, SP>
 {
-    type Storage<T> = Storage<T, C>;
+    type Storage<T> = Slots<Slot<T>, C>;
 
     fn storage<T>(self) -> Self::Storage<T> {
-        let lap = slot_mask(self.capacity.get()).wrapping_add(1);
-        Storage {
-            slots: Slots::new(self.capacity, |i| Slot {
-                msg: UnsafeCell::new(MaybeUninit::uninit()),
-                stamp: AtomicUsize::new(i.wrapping_sub(lap) & LB),
-            }),
-            slot_mask: self.capacity.mask(slot_mask),
-        }
+        Slots::new(self.capacity, |i, lap| Slot {
+            msg: UnsafeCell::new(MaybeUninit::uninit()),
+            stamp: AtomicUsize::new(i.wrapping_sub(lap) & LB),
+        })
     }
 
     fn capacity<T>(storage: &Self::Storage<T>) -> Option<usize> {
-        Some(storage.slots.len())
+        Some(storage.len())
     }
 
     fn drop_storage<T>(chan: &mut Chan<T, Self>) {
-        debug_assert!(chan.tx_shared_state.load_mut() & chan.closed_flag() != 0);
-        let tail = chan.tx_shared_state.load_mut() & LB & !chan.closed_flag();
-        let tail_idx = tail & chan.slot_mask();
-        let head = chan.rx_shared_state.load_mut();
-        let head_idx = head & chan.slot_mask();
-        let (r1, r2) = match tail_idx.cmp(&head_idx) {
-            cmp::Ordering::Less => (0..tail_idx, head_idx..chan.capacity()),
-            cmp::Ordering::Equal if head != tail => (0..chan.capacity(), 0..0),
-            cmp::Ordering::Equal => (0..0, 0..0),
-            cmp::Ordering::Greater => (head_idx..tail_idx, 0..0),
-        };
-        for idx in r1.chain(r2) {
-            let slot = unsafe { chan.slots.get_unchecked(idx) };
+        debug_assert!(chan.tx_state.load_mut() & chan.closed_flag() != 0);
+        let tail = chan.tx_state.load_mut() & LB & !chan.closed_flag();
+        let head = chan.rx_state.load_mut();
+        for slot in chan.slots_between(head, tail) {
             unsafe { slot.msg.with_ref_mut(|m| m.assume_init_drop()) };
         }
     }
 
     fn close<T>(chan: &Chan<T, Self>) {
-        chan.tx_shared_state.fetch_or(chan.closed_flag(), SeqCst);
+        chan.tx_state.fetch_or(chan.closed_flag(), SeqCst);
     }
 
     fn is_closed<T>(chan: &Chan<T, Self>) -> bool {
@@ -164,28 +121,28 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
 
     fn tx_init_state<T>(storage: &Self::Storage<T>) -> Self::TxAtomicState<T> {
         let tail = 0;
-        let max_tail = storage.slot_mask().wrapping_add(1);
+        let max_tail = storage.lap();
         AtomicUsize::new(tail | (max_tail << HB_SHIFT))
     }
 
     fn is_full<T>(chan: &Chan<T, Self>) -> bool {
-        let state = chan.tx_shared_state.load(Relaxed);
+        let state = chan.tx_state.load(Relaxed);
         let tail = state & LB;
         let max_tail = state >> HB_SHIFT;
         tail == max_tail
     }
 
     fn tx_acquire_slot<T>(chan: &Chan<T, Self>) -> Result<Self::TxSlot<T>, Self::TxState<T>> {
-        let state = chan.tx_shared_state.load(Relaxed);
+        let state = chan.tx_state.load(Relaxed);
         let tail = state & LB;
         let max_tail = state >> HB_SHIFT;
         let tail_idx = state & chan.slot_mask();
         if tail == max_tail || tail_idx >= chan.capacity() - 1 {
             return Err(state);
         }
-        chan.tx_shared_state
+        chan.tx_state
             .compare_exchange_weak(state, state + 1, SeqCst, Relaxed)?;
-        let slot = unsafe { chan.slots.get_unchecked(tail_idx) }.into();
+        let slot = unsafe { chan.get_unchecked(tail_idx) }.into();
         Ok((slot, tail))
     }
 
@@ -194,26 +151,25 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
         state: &mut Self::TxState<T>,
         first_call: bool,
     ) -> Result<Self::TxSlot<T>, TryAcquireError> {
-        let slot_mask = chan.slot_mask();
-        let lap = || slot_mask.wrapping_add(1);
+        let lap = chan.lap();
         let mut backoff = (!first_call).then(Backoff::new);
         loop {
-            let tail_idx = *state & slot_mask;
+            let tail_idx = *state & chan.slot_mask();
             let mut next_state = match tail_idx.cmp(&(chan.capacity() - 1)) {
                 cmp::Ordering::Less => *state + 1,
-                cmp::Ordering::Equal => (*state & !slot_mask).wrapping_add(lap()),
+                cmp::Ordering::Equal => chan.new_lap(*state, true),
                 cmp::Ordering::Greater => return Err(TryAcquireError::Closed),
             };
             let tail = *state & LB;
             let max_tail = *state >> HB_SHIFT;
             if max_tail == tail {
-                let cur_state = chan.tx_shared_state.load(SeqCst);
-                if cur_state != *state {
-                    *state = cur_state;
+                let state_reload = chan.tx_state.load(SeqCst);
+                if state_reload != *state {
+                    *state = state_reload;
                     continue;
                 }
-                let head = chan.rx_shared_state.load(SeqCst);
-                let max_tail = head.wrapping_add(lap()) & !(BLOCK_SIZE - 1);
+                let head = chan.rx_state.load(SeqCst);
+                let max_tail = head.wrapping_add(lap) & LB & !(BLOCK_SIZE - 1);
                 if max_tail == tail {
                     return Err(TryAcquireError::Unavailable);
                 }
@@ -225,11 +181,11 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
                 backoff = Some(Backoff::new());
             }
             match chan
-                .tx_shared_state
+                .tx_state
                 .compare_exchange_weak(*state, next_state, SeqCst, Relaxed)
             {
                 Ok(_) => {
-                    let slot = unsafe { chan.slots.get_unchecked(tail_idx) }.into();
+                    let slot = unsafe { chan.get_unchecked(tail_idx) }.into();
                     return Ok((slot, tail));
                 }
                 Err(s) => *state = s,
@@ -260,16 +216,16 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
     }
 
     fn is_empty<T>(chan: &Chan<T, Self>) -> bool {
-        let head = chan.rx_shared_state.load(Relaxed);
+        let head = chan.rx_state.load(Relaxed);
         let head_idx = head & chan.slot_mask();
-        let slot = unsafe { chan.slots.get_unchecked(head_idx) };
+        let slot = unsafe { chan.get_unchecked(head_idx) };
         slot.stamp.load(Acquire) != head
     }
 
     fn rx_acquire_slot<T>(chan: &Chan<T, Self>) -> Result<Self::RxSlot<T>, Self::RxState<T>> {
-        let head = chan.rx_shared_state.load(Relaxed);
+        let head = chan.rx_state.load(Relaxed);
         let head_idx = head & chan.slot_mask();
-        let slot = unsafe { chan.slots.get_unchecked(head_idx) };
+        let slot = unsafe { chan.get_unchecked(head_idx) };
         if slot.stamp.load(Acquire) != head {
             return Err((slot.into(), head));
         }
@@ -288,7 +244,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
             }
         }
         if UNBOUNDED_BACKOFF {
-            let tail = chan.tx_shared_state.load(SeqCst) & LB;
+            let tail = chan.tx_state.load(SeqCst) & LB;
             let closed_flag = chan.closed_flag();
             if head == tail & !closed_flag {
                 return Err(if head == tail {
@@ -304,7 +260,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
             return Ok((slot, head));
         }
         if chan.tx_waiter.is_closed() {
-            let tail = chan.tx_shared_state.load(SeqCst) & LB;
+            let tail = chan.tx_state.load(SeqCst) & LB;
             debug_assert!(tail & chan.closed_flag() != 0);
             if head == tail & !chan.closed_flag() {
                 return Err(TryAcquireError::Closed);
@@ -315,18 +271,16 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
 
     fn read_slot<T>(chan: &Chan<T, Self>, (slot, head): Self::RxSlot<T>) -> T {
         let msg = unsafe { slot.as_ref().msg.with_ref(|m| m.assume_init_read()) };
-        let slot_mask = chan.slot_mask();
-        let new_head = if head & slot_mask == chan.capacity() - 1 {
-            let lap = slot_mask.wrapping_add(1);
-            (head & !slot_mask).wrapping_add(lap)
+        let new_head = if head & chan.slot_mask() == chan.capacity() - 1 {
+            chan.new_lap(head, false)
         } else {
             head + 1
         };
         if new_head.is_multiple_of(BLOCK_SIZE) {
-            chan.rx_shared_state.store(new_head, SeqCst);
+            chan.rx_state.store(new_head, SeqCst);
             chan.tx_waiter.notify_many_const::<BLOCK_SIZE>();
         } else {
-            chan.rx_shared_state.store(new_head, Relaxed);
+            chan.rx_state.store(new_head, Relaxed);
         }
         msg
     }
