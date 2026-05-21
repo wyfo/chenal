@@ -22,7 +22,9 @@ const TWO: Usize<2> = Usize::<2>;
 trait Send2<T> {
     fn send2(&self, msg: T, sync: bool) -> Result<(), SendError<T>>;
 }
-impl<T, const BLOCK_SIZE: usize, const UB: bool> Send2<T> for MTx<T, Array<BLOCK_SIZE, usize, UB>> {
+impl<T, const BLOCK_SIZE: usize, const UNBOUNDED_BACKOFF: bool> Send2<T>
+    for MTx<T, Array<BLOCK_SIZE, usize, UNBOUNDED_BACKOFF>>
+{
     fn send2(&self, msg: T, sync: bool) -> Result<(), SendError<T>> {
         if sync {
             self.send_blocking(msg)
@@ -34,7 +36,9 @@ impl<T, const BLOCK_SIZE: usize, const UB: bool> Send2<T> for MTx<T, Array<BLOCK
 trait Recv2<T> {
     fn recv2(&mut self, sync: bool) -> Result<T, RecvError>;
 }
-impl<T, const BLOCK_SIZE: usize, const UB: bool> Recv2<T> for Rx<T, Array<BLOCK_SIZE, usize, UB>> {
+impl<T, const BLOCK_SIZE: usize, const UNBOUNDED_BACKOFF: bool> Recv2<T>
+    for Rx<T, Array<BLOCK_SIZE, usize, UNBOUNDED_BACKOFF>>
+{
     fn recv2(&mut self, sync: bool) -> Result<T, RecvError> {
         if sync {
             self.recv_blocking()
@@ -53,9 +57,9 @@ fn mpsc<const BS: usize, const UB: bool>(
     let _ = (bs, ub);
     let (tx, mut rx) = <Array<BS, _, UB>>::new(2).channel();
     let mut values = thread::scope(|s| {
-        s.spawn(|| tx.send2(0, sync));
-        s.spawn(|| tx.send2(1, sync));
-        s.spawn(|| tx.send2(2, sync));
+        s.spawn(|| tx.send2(0, sync).unwrap());
+        s.spawn(|| tx.send2(1, sync).unwrap());
+        s.spawn(|| tx.send2(2, sync).unwrap());
         (0..3).map(|_| rx.recv2(sync).unwrap()).collect::<Vec<_>>()
     });
     values.sort_unstable();

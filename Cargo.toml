@@ -49,6 +49,10 @@ name = "mpsc_array"
 required-features = ["blocking"]
 
 [[test]]
+name = "spsc_array"
+required-features = ["blocking"]
+
+[[test]]
 name = "compat_std_mpsc_sync"
 required-features = ["compat-std"]
 

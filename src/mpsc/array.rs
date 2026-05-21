@@ -126,9 +126,9 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
     }
 
     fn is_full<T>(chan: &Chan<T, Self>) -> bool {
-        let state = chan.tx_state.load(Relaxed);
-        let tail = state & LB;
-        let max_tail = state >> HB_SHIFT;
+        let tail = chan.tx_state.load(Relaxed) & LB;
+        let head = chan.rx_state.load(Relaxed) & LB;
+        let max_tail = head.wrapping_add(chan.lap()) & LB & !(BLOCK_SIZE - 1);
         tail == max_tail
     }
 
@@ -151,7 +151,6 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
         state: &mut Self::TxState<T>,
         first_call: bool,
     ) -> Result<Self::TxSlot<T>, TryAcquireError> {
-        let lap = chan.lap();
         let mut backoff = (!first_call).then(Backoff::new);
         loop {
             let tail_idx = *state & chan.slot_mask();
@@ -169,7 +168,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
                     continue;
                 }
                 let head = chan.rx_state.load(SeqCst);
-                let max_tail = head.wrapping_add(lap) & LB & !(BLOCK_SIZE - 1);
+                let max_tail = head.wrapping_add(chan.lap()) & LB & !(BLOCK_SIZE - 1);
                 if max_tail == tail {
                     return Err(TryAcquireError::Unavailable);
                 }
@@ -219,7 +218,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
         let head = chan.rx_state.load(Relaxed);
         let head_idx = head & chan.slot_mask();
         let slot = unsafe { chan.get_unchecked(head_idx) };
-        slot.stamp.load(Acquire) != head
+        slot.stamp.load(Relaxed) != head
     }
 
     fn rx_acquire_slot<T>(chan: &Chan<T, Self>) -> Result<Self::RxSlot<T>, Self::RxState<T>> {
