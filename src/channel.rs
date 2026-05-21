@@ -484,13 +484,13 @@ impl Future for ClosedFuture<'_> {
     }
 }
 
-trait Close: fmt::Debug {
+trait Close: Send + Sync + fmt::Debug {
     fn id(&self) -> ChannelId;
     fn close(&self);
     fn closed(&self) -> ClosedFuture<'_>;
 }
 
-impl<T, Ch: internal::Channel> Close for Chan<T, Ch> {
+impl<T: Send, Ch: internal::Channel> Close for Chan<T, Ch> {
     fn id(&self) -> ChannelId {
         self.id()
     }
@@ -508,7 +508,7 @@ impl<T, Ch: internal::Channel> Close for Chan<T, Ch> {
 pub struct CloseHandle<'a>(Arc<dyn Close + 'a>);
 
 impl<'a> CloseHandle<'a> {
-    pub(crate) fn new<T: 'a, Ch: Channel>(chan: Arc<Chan<T, Ch>>) -> Self {
+    pub(crate) fn new<T: Send + 'a, Ch: Channel>(chan: Arc<Chan<T, Ch>>) -> Self {
         #[cfg(not(loom))]
         return Self(chan as _);
         #[cfg(loom)]
@@ -518,6 +518,11 @@ impl<'a> CloseHandle<'a> {
     /// Returns the channel's unique identifier.
     pub fn channel_id(&self) -> ChannelId {
         self.0.id()
+    }
+
+    /// Closes the channel, preventing new messages to be sent.
+    pub fn close(&self) {
+        self.0.close();
     }
 
     /// Converts this handle into a [`CloseGuard`] that closes the channel when dropped.
@@ -592,7 +597,7 @@ macro_rules! channel_half {
             pub fn is_closed(&self) -> bool {
                 Ch::is_closed(&self.chan)
             }
-            /// Closes the channel, waking all waiting senders and receivers.
+            /// Closes the channel, preventing new messages to be sent.
             pub fn close(&self) {
                 self.chan.close();
             }
@@ -600,7 +605,7 @@ macro_rules! channel_half {
             /// without holding this half.
             pub fn close_handle<'a>(&self) -> CloseHandle<'a>
             where
-                T: 'a,
+                T: Send + 'a,
             {
                 CloseHandle::new(self.chan.clone())
             }
