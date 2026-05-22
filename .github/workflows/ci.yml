@@ -26,13 +26,21 @@ jobs:
         env:
           RUSTDOCFLAGS: "-Dwarnings"
 
+  compute-miri-seeds:
+    runs-on: ubuntu-latest
+    outputs:
+      seeds: ${{ steps.compute-seeds.outputs.seeds }}
+    steps:
+      - id: compute-seeds
+        run: python3 -c "print('seeds=' + str([f'{i}..{i+32}' for i in range(0,2048,32)]))" >> $GITHUB_OUTPUT
+
   miri:
-    needs: test
+    needs: [test, compute-miri-seeds]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true
       matrix:
-        seeds: [0..256, 256..512, 512..768, 768..1024, 1024..1280, 1280..1536, 1536..1792, 1792..2048]
+        seeds: ${{ fromJson(needs.compute-miri-seeds.outputs.seeds) }}
     steps:
       - uses: actions/checkout@v4
       - name: install miri
