@@ -156,6 +156,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
             let tail_idx = *state & chan.slot_mask();
             let mut next_state = match tail_idx.cmp(&(chan.capacity() - 1)) {
                 cmp::Ordering::Less => *state + 1,
+                // `chan.wrap_around` is not inlined properly compared to new_lap
                 cmp::Ordering::Equal => chan.new_lap(*state, true),
                 cmp::Ordering::Greater => return Err(TryAcquireError::Closed),
             };
@@ -179,10 +180,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
             } else {
                 backoff = Some(Backoff::new());
             }
-            match chan
-                .tx_state
-                .compare_exchange_weak(*state, next_state, SeqCst, Relaxed)
-            {
+            match (chan.tx_state).compare_exchange_weak(*state, next_state, SeqCst, Relaxed) {
                 Ok(_) => {
                     let slot = unsafe { chan.get_unchecked(tail_idx) }.into();
                     return Ok((slot, tail));
@@ -270,11 +268,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
 
     fn read_slot<T>(chan: &Chan<T, Self>, (slot, head): Self::RxSlot<T>) -> T {
         let msg = unsafe { slot.as_ref().msg.with_ref(|m| m.assume_init_read()) };
-        let new_head = if head & chan.slot_mask() == chan.capacity() - 1 {
-            chan.new_lap(head, false)
-        } else {
-            head + 1
-        };
+        let new_head = chan.wrap_around(head & chan.slot_mask(), head, false);
         if new_head.is_multiple_of(BLOCK_SIZE) {
             chan.rx_state.store(new_head, SeqCst);
             chan.tx_waiter.notify_many_const::<BLOCK_SIZE>();

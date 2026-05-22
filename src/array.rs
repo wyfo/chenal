@@ -58,6 +58,15 @@ impl<S, C: internal::Capacity> Slots<S, C> {
     }
 
     #[inline(always)]
+    pub(crate) fn wrap_around(&self, idx: usize, state: usize, keep_hb: bool) -> usize {
+        if idx != self.capacity() - 1 {
+            state + 1
+        } else {
+            self.new_lap(state, keep_hb)
+        }
+    }
+
+    #[inline(always)]
     pub(crate) fn closed_flag(&self) -> usize {
         (self.slot_mask() >> 1) + 1
     }

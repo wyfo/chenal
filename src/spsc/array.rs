@@ -156,11 +156,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity> internal::Channel for Array<BLOCK_SIZ
         let tail_idx = state & chan.slot_mask();
         let slot = unsafe { chan.get_unchecked(tail_idx) };
         unsafe { slot.with_ref_mut(|m| m.write(msg)) };
-        let new_state = if tail_idx == chan.capacity() - 1 {
-            chan.new_lap(state, true)
-        } else {
-            state + 1
-        };
+        let new_state = chan.wrap_around(tail_idx, state, true);
         chan.tx_state.store(new_state, SeqCst);
         if chan.closed.load(SeqCst) != 0 {
             #[cold]
@@ -169,7 +165,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity> internal::Channel for Array<BLOCK_SIZ
                 chan: &Chan<T, Array<BLOCK_SIZE, C>>,
                 state: usize,
             ) -> Result<(), SendError<T>> {
-                let new_tail = chan.new_lap(state, false) & LB;
+                let new_tail = chan.wrap_around(state & chan.slot_mask(), state, true) & LB;
                 if let Err(closed) =
                     (chan.closed).compare_exchange(1, 1 | (new_tail << 1), SeqCst, Relaxed)
                     && closed >> 1 != new_tail
@@ -240,11 +236,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity> internal::Channel for Array<BLOCK_SIZ
         let head_idx = state & chan.slot_mask();
         let slot = unsafe { chan.get_unchecked(head_idx) };
         let msg = unsafe { slot.with_ref(|m| m.assume_init_read()) };
-        let new_state = if head_idx == chan.capacity() - 1 {
-            chan.new_lap(state, true)
-        } else {
-            state + 1
-        };
+        let new_state = chan.wrap_around(head_idx, state, true);
         if new_state.is_multiple_of(BLOCK_SIZE) {
             chan.rx_state.store(new_state, SeqCst);
             chan.tx_waiter.wake_cold();

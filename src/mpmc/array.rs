@@ -157,6 +157,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
             let tail_idx = *state & chan.slot_mask();
             let mut next_state = match tail_idx.cmp(&(chan.capacity() - 1)) {
                 cmp::Ordering::Less => *state + 1,
+                // `chan.wrap_around` is not inlined properly compared to new_lap
                 cmp::Ordering::Equal => chan.new_lap(*state, true),
                 cmp::Ordering::Greater => return Err(TryAcquireError::Closed),
             };
@@ -180,10 +181,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
             } else {
                 backoff = Some(Backoff::new());
             }
-            match chan
-                .tx_state
-                .compare_exchange_weak(*state, next_state, SeqCst, Relaxed)
-            {
+            match (chan.tx_state).compare_exchange_weak(*state, next_state, SeqCst, Relaxed) {
                 Ok(_) => {
                     let slot = unsafe { chan.get_unchecked(tail_idx) }.into();
                     return Ok((slot, tail));
@@ -229,11 +227,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
             return Err(head);
         }
         let msg = unsafe { slot.read() };
-        let new_head = if head_idx == chan.capacity() - 1 {
-            chan.new_lap(head, false)
-        } else {
-            head + 1
-        };
+        let new_head = chan.wrap_around(head_idx, head, false);
         chan.rx_state
             .compare_exchange_weak(head, new_head, SeqCst, Relaxed)
             .map(|_| unsafe { msg.assume_init() })
@@ -281,20 +275,13 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
                 }
             }
             let msg = unsafe { slot.read() };
-            let new_head = if head_idx == chan.capacity() - 1 {
-                chan.new_lap(*head, false)
-            } else {
-                *head + 1
-            };
+            let new_head = chan.wrap_around(head_idx, *head, false);
             if let Some(backoff) = backoff.as_ref() {
                 backoff.spin();
             } else {
                 backoff = Some(Backoff::new());
             }
-            match chan
-                .rx_state
-                .compare_exchange_weak(*head, new_head, SeqCst, Relaxed)
-            {
+            match (chan.rx_state).compare_exchange_weak(*head, new_head, SeqCst, Relaxed) {
                 Ok(_) => return Ok(unsafe { msg.assume_init() }),
                 Err(h) => *head = h,
             }
