@@ -34,7 +34,7 @@ use crate::{
 /// [work in practice](https://github.com/rust-lang/unsafe-code-guidelines/blob/master/resources/deliberate-ub.md)
 /// and is used in other widespread algorithms like SeqLocks.
 ///
-/// The progresses on a sound alternative are tracked in
+/// Progress on a sound alternative is tracked in
 /// [RFC 3301](https://github.com/rust-lang/rfcs/pull/3301)
 pub struct Array<C: Capacity = usize, SP: SyncPrimitives = DefaultSyncPrimitives> {
     capacity: C,

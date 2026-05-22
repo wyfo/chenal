@@ -20,7 +20,7 @@ pub(crate) struct Slots<S, C: internal::Capacity> {
 impl<S, C: internal::Capacity> Slots<S, C> {
     pub(crate) fn new(capacity: C, mut slot: impl FnMut(usize, usize) -> S) -> Self {
         assert!(capacity.get() > 0, "capacity must not be zero");
-        assert!(capacity.get() <= (LB >> 1), "capacity overflow");
+        assert!(capacity.get() <= (LB >> 1) + 1, "capacity overflow");
         let lap = slot_mask(capacity.get()).wrapping_add(1);
         let slots = (0..capacity.get())
             .map(|i| slot(i, lap))

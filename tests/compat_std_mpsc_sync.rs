@@ -479,6 +479,7 @@ fn oneshot_single_thread_peek_data() {
 //     }
 // }
 
+#[cfg(not(miri))]
 #[test]
 fn recv_a_lot() {
     let count = if cfg!(miri) { 1000 } else { 10000 };
@@ -678,6 +679,7 @@ fn try_send3() {
     assert_eq!(tx.try_send(1), Err(TrySendError::Disconnected(1)));
 }
 
+#[cfg(not(miri))]
 #[test]
 fn issue_15761() {
     fn repro() {

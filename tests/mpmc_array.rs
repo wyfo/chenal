@@ -314,7 +314,7 @@ fn drop_buffered(#[case] offset: usize, #[case] msgs: usize) {
 
 // Invalid capacities are rejected.
 #[rstest]
-#[case::overflow((usize::MAX >> (usize::BITS / 2 + 1)) + 1)]
+#[case::overflow((1 << (usize::BITS / 2 - 1)) + 1)]
 #[should_panic]
 fn invalid_capacity(#[case] capacity: usize) {
     <Array>::new(capacity).channel::<()>();

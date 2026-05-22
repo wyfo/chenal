@@ -11,7 +11,7 @@ Performant channel implementations.
 
 ## *Work in progress*
 
-*The crate is still at an early development stage. Only a bounded MPSC algorithm is provided for the moment, but others will follow soon.*
+*The crate is still at an early development stage. Only bounded channels are provided for the moment, but unbounded channels might be added in the future.*
 
 ## Example
 
@@ -33,9 +33,10 @@ std::thread::scope(|s| {
 
 ### [`crossbeam_channel`](https://docs.rs/crossbeam-channel/latest/crossbeam_channel/) / [`std::sync::mpsc`](https://doc.rust-lang.org/std/sync/mpsc/)
 
-While exposed as an MPSC channel in the standard library, the underlying `crossbeam_channel` crate is an MPMC, so it's not fair to compare it to `chenal` until its MPMC is released.
+`crossbeam_channel`, the crate behind `std::sync::mpsc`, is a synchronous MPMC channel and surely the most known in the ecosystem. But it doesn't provide an optimized algorithm for the MPSC use case.
+On its own benchmark, `chenal` is 2x faster than `crossbeam_channel` on average.
 
-One notable difference from `std::sync::mpsc` is in the API; while `chenal` and most other MPSCs use `&mut self` methods on the receiver, `std::sync::mpsc::Receiver` uses `&self` but is `!Sync` in exchange.
+Regarding `std::sync::mpsc`, there is one notable difference in its API; while `chenal` and most other MPSCs use `&mut self` methods on the receiver, `std::sync::mpsc::Receiver` uses `&self` but is `!Sync` in exchange.
 
 ### [`tokio::sync::mpsc`](https://docs.rs/tokio/latest/tokio/sync/mpsc/)
 
@@ -52,7 +53,7 @@ On the other hand, it's one of the least performant MPSC, especially due to a hi
 
 ### [`kanal`](https://docs.rs/kanal/latest/kanal/)
 
-`kanal` is an MPMC channel which pretends to be faster than any other competitor. However, it uses a lock-based algorithm, which means every operation performs at least two atomic RMW operations, vs. one for `chenal`, not to mention other (spin-)lock drawbacks. In `kanal`'s own benchmark, `chenal` is 3x faster on average.
+`kanal` is an MPMC channel inspired from Go which pretends to be faster than any other competitor. However, it uses a lock-based algorithm, which means every operation performs at least two atomic RMW operations, vs. one for `chenal`, not to mention other (spin-)lock drawbacks. In `kanal`'s own benchmark, `chenal` is 3x faster on average.
 
 `kanal` is also not async-friendly, as its operations are not [cancel-safe](https://github.com/fereidani/kanal/issues/24).
 
@@ -60,13 +61,13 @@ On the other hand, it's one of the least performant MPSC, especially due to a hi
 
 `crossfire`'s API is radically different from other channel crates, as it is heavily generic, supports multiple kinds of channels, and uses `MTx`/`Rx`/etc. instead of `Sender`/`Receiver`. It is obviously the main inspiration behind `chenal`'s API.
 
-However, while `chenal` is carefully designed around hot path inlining, `crossfire` overuses inlining: while `let _ = tx.send(msg)` compiles to 56 assembly lines with `chenal`, the same code compiles to 2148 assembly lines with `crossfire`.
+However, while `chenal` is carefully designed around hot path inlining, `crossfire` overuses inlining: `let _ = tx.send_blocking(msg)` compiles to 56 assembly lines with `chenal`, against 2148 assembly lines with `crossfire`.
 
-`crossfire` also overuses backoff loops: calling `recv` on an empty channel will spin and yield to the OS many times before giving up and parking. While it *might* be good for highly contended benchmarks, it adds latency and disrupts the scheduler on each operation.
+`crossfire` also overuses backoff loops: calling `recv` on an empty channel will spin and yield to the OS many times before giving up and parking. While it *might* be good for throughput in highly contended benchmarks, it adds latency and disrupts the scheduler on each operation.
 
-Speaking of benchmarks, `crossfire` claims to have "pushed the speed to a level no one has gone before". But this was before `chenal`, as adding the same `try_xxx` backoff loops before blocking operations makes it overtake `crossfire` in all highly contended benchmarks. And it performs significantly better without the loops when the capacity is large enough. `tachyonix`'s benchmarks, which are more realistic, also give a clear advantage to `chenal` compared to `crossfire`.
+On highly contented benchmarks with small capacity, `crossfire` performs well, at the cost of calling 200k times `yield_now`. Yet, adding `try_xxx` backoff loops before blocking operations (roughly what `crossfire` does) makes `chenal` overtake `crossfire` in these benchmarks. And it performs significantly better without the backoff loops when the capacity is large enough. `tachyonix`'s benchmarks, which are more realistic, also give a clear advantage to `chenal` compared to `crossfire`.
 
-Last but not least, while both algorithms are similar and use an unbounded backoff loop — because `SeqCst` stores are too expensive on x86_64 — `chenal`'s algorithm is optimized to not use this unbounded backoff loop on other architectures like aarch64.
+Last but not least, `crossfire` doesn't allow closing a channel without dropping the receiver, preventing graceful termination without message loss. `chenal` not only allows it, but also every channel, even the SPSC one, can be closed from the receiver, the sender, or a dedicated `CloseHandle`.
 
 ## What makes `chenal` blazingly fast™?
 
@@ -74,17 +75,21 @@ This crate is built on top of two waiting primitives:
 - [`aiq`](https://github.com/wyfo/aiq): an intrusive list with lock-free insertion
 - [`spmc-waker`](https://github.com/wyfo/spmc-waker): a SPMC atomic waker with caching
 
-When no waker is registered, both primitives require a single atomic load.
+When no waker is registered, both primitives have their hot path reduced to a single atomic load.
 
 `chenal` code (as well as `aiq`'s and `spmc-waker`'s code) is carefully designed around hot path inlining. Each operation is compiled to a few dozen assembly instructions, while the outlined cold path has its generic parameters erased to be reused by different generic instances.
 
-The algorithms are optimized to minimize contention and depend on the CPU architecture. Unlike the classical channel algorithm by Dmitry Vyukov (used in `crossbeam_channel` or `tachyonix`), channel slots are never written by the receiver, reducing contention on their cache lines.
+The algorithms are optimized to minimize atomic operations and contention. Each `send`/`recv` operation uses at most 1 atomic RMW operation in hot path. On x86_64 where `SeqCst` stores are expensive, they are downgraded to `Release` by adding an unbounded backoff loop on the receiver side.
 
-On x86_64 where `SeqCst` stores are expensive, they are downgraded to `Release` by adding an unbounded backoff loop on the receiver side. On aarch64, the channel's tail is also never accessed by the receiver, putting no contention on the senders.
+Unlike the classical MPMC channel algorithm by Dmitry Vyukov (used in `crossbeam_channel` or `tachyonix`), channel slots are never written by the receiver, reducing contention on their cache lines. As a tradeoff, channel's capacity is limited to 2^31 on 64-bit platforms, which should be enough for most use cases.
 
-## Safety
+## Safety and soundness
 
-Like any other lock-free channel implementation, this crate uses unsafe code. It is [extensively tested](https://github.com/wyfo/chenal/actions/runs/26091006905/job/76716454402) with [miri](https://github.com/rust-lang/miri) to ensure its safety.
+Like any other lock-free channel implementation, this crate uses unsafe code. It is [extensively tested](https://github.com/wyfo/chenal/actions/runs/26308911686) with [miri](https://github.com/rust-lang/miri) to ensure its safety.
+
+MPMC and SPMC channels' algorithms rely on an **undefined behavior** in the Rust memory model (not LLVM's one), which is known to [work in practice](https://github.com/rust-lang/unsafe-code-guidelines/blob/master/resources/deliberate-ub.md) and is used in other widespread algorithms like SeqLocks.
+
+Progress on a sound alternative is tracked in [RFC 3301](https://github.com/rust-lang/rfcs/pull/3301).
 
 ## License
 
