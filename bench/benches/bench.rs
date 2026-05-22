@@ -218,8 +218,8 @@ macro_rules! bench_channel {
 }
 
 fn bench(c: &mut Criterion) {
-    bench_channel!(c, chenal, mpsc, spsc);
-    bench_channel!(c, chenal_loop, mpsc, spsc);
+    bench_channel!(c, chenal, mpmc, mpsc, spsc);
+    bench_channel!(c, chenal_loop, mpmc, mpsc, spsc);
     bench_channel!(c, chenal_32, mpsc, spsc);
     bench_channel!(c, crossfire, mpmc, mpsc, spsc);
     bench_channel!(c, crossbeam, mpmc(blocking));

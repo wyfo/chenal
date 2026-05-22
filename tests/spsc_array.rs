@@ -44,7 +44,7 @@ impl<T, const BLOCK_SIZE: usize> Recv2<T> for Rx<T, Array<BLOCK_SIZE, usize>> {
 // Sequential send/recv preserves FIFO order.
 #[test]
 fn sequential() {
-    let (mut tx, mut rx) = <Array<1>>::new(2).channel();
+    let (mut tx, mut rx) = <Array>::new(2).channel();
     tx.try_send(1).unwrap();
     tx.try_send(2).unwrap();
     assert_eq!(rx.try_recv(), Ok(1));
@@ -81,7 +81,7 @@ fn spsc<const BS: usize>(#[values(false, true)] sync: bool, #[values(ONE, TWO)] 
 // try_send on a full channel returns Full without blocking.
 #[test]
 fn try_send_full() {
-    let (mut tx, mut rx) = <Array<1>>::new(1).channel();
+    let (mut tx, mut rx) = <Array>::new(1).channel();
     assert!(!tx.is_full());
     tx.try_send(0).unwrap();
     assert!(tx.is_full());
@@ -94,7 +94,7 @@ fn try_send_full() {
 // try_recv on an empty channel returns Empty without blocking.
 #[test]
 fn try_recv_empty() {
-    let (mut tx, mut rx) = <Array<1>>::new(1).channel::<usize>();
+    let (mut tx, mut rx) = <Array>::new(1).channel::<usize>();
     assert!(rx.is_empty());
     assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
     tx.try_send(0).unwrap();
@@ -106,7 +106,7 @@ fn try_recv_empty() {
 // Dropping the sender closes the channel; buffered messages are still readable.
 #[rstest]
 fn tx_drop_closes(#[values(false, true)] sync: bool) {
-    let (mut tx, mut rx) = <Array<1>>::new(2).channel();
+    let (mut tx, mut rx) = <Array>::new(2).channel();
     assert!(!rx.is_closed());
     tx.try_send(42).unwrap();
     drop(tx);
@@ -119,7 +119,7 @@ fn tx_drop_closes(#[values(false, true)] sync: bool) {
 // Dropping the receiver closes the channel; sends return Closed.
 #[rstest]
 fn rx_drop_closes(#[values(false, true)] sync: bool) {
-    let (mut tx, rx) = <Array<1>>::new(2).channel::<usize>();
+    let (mut tx, rx) = <Array>::new(2).channel::<usize>();
     assert!(!tx.is_closed());
     drop(rx);
     assert!(tx.is_closed());
@@ -130,7 +130,7 @@ fn rx_drop_closes(#[values(false, true)] sync: bool) {
 // Dropping the sender while recv is blocked wakes the receiver with RecvError.
 #[rstest]
 fn tx_drop_while_recv_waiting(#[values(false, true)] sync: bool) {
-    let (tx, mut rx) = <Array<1>>::new(1).channel::<usize>();
+    let (tx, mut rx) = <Array>::new(1).channel::<usize>();
     let recv = thread::spawn(move || rx.recv2(sync));
     drop(tx);
     assert_eq!(recv.join().unwrap(), Err(RecvError));
@@ -139,7 +139,7 @@ fn tx_drop_while_recv_waiting(#[values(false, true)] sync: bool) {
 // Dropping the receiver while send is blocked wakes the sender with SendError.
 #[rstest]
 fn rx_drop_while_send_waiting(#[values(false, true)] sync: bool) {
-    let (mut tx, rx) = <Array<1>>::new(1).channel();
+    let (mut tx, rx) = <Array>::new(1).channel();
     tx.try_send(0).unwrap();
     let send = thread::spawn(move || tx.send2(1, sync));
     drop(rx);
@@ -170,7 +170,7 @@ fn concurrent_close<const BS: usize>(
 // A canceled SendFuture does not deliver its message.
 #[rstest]
 fn send_future_cancel(#[values(false, true)] take: bool) {
-    let (mut tx, mut rx) = <Array<1>>::new(1).channel();
+    let (mut tx, mut rx) = <Array>::new(1).channel();
     tx.try_send(0).unwrap();
     {
         let mut fut = pin!(tx.send(1));
@@ -187,7 +187,7 @@ fn send_future_cancel(#[values(false, true)] take: bool) {
 // A canceled RecvFuture does not consume a message.
 #[test]
 fn recv_future_cancel() {
-    let (mut tx, mut rx) = <Array<1>>::new(1).channel();
+    let (mut tx, mut rx) = <Array>::new(1).channel();
     {
         let mut fut = pin!(rx.recv());
         let mut cx = Context::from_waker(Waker::noop());

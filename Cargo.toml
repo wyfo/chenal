@@ -14,17 +14,18 @@ rust-version = "1.87"
 all-features = true
 
 [features]
-default = ["std"]
+default = ["std", "mpmc"]
 blocking = ["std"]
 compat-tokio = ["dep:tokio"]
 compat-tokio-time = ["compat-tokio", "tokio/time"]
 compat-std = ["blocking"]
+mpmc = ["atomic-memcpy"]
 std = ["aiq/std", "crossbeam-utils/std"]
 stream = ["dep:futures-core"]
 
-
 [dependencies]
 aiq = { version = "0.1.0-alpha.2", default-features = false, features = ["wait-queue"] }
+atomic-memcpy = { version = "0.2.3", features = ["inline-always"], optional = true }
 crossbeam-utils = { version = "0.8", default-features = false }
 futures-core = { version = "0.3", optional = true }
 spmc-waker = "0.1.0-alpha"
@@ -47,6 +48,10 @@ test = false
 [[test]]
 name = "mpsc_array"
 required-features = ["blocking"]
+
+[[test]]
+name = "mpmc_array"
+required-features = ["blocking", "mpmc"]
 
 [[test]]
 name = "spsc_array"

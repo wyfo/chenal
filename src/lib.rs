@@ -16,6 +16,7 @@ pub mod compat;
 pub mod errors;
 mod internal;
 mod loom;
+#[cfg(feature = "mpmc")]
 pub mod mpmc;
 pub mod mpsc;
 mod rc;

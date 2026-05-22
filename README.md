@@ -74,7 +74,7 @@ This crate is built on top of two waiting primitives:
 - [`aiq`](https://github.com/wyfo/aiq): an intrusive list with lock-free insertion
 - [`spmc-waker`](https://github.com/wyfo/spmc-waker): a SPMC atomic waker with caching
 
-When no waker is registered, both primitives require a single atomic load, with their waking path outlined in a cold function.
+When no waker is registered, both primitives require a single atomic load.
 
 `chenal` code (as well as `aiq`'s and `spmc-waker`'s code) is carefully designed around hot path inlining. Each operation is compiled to a few dozen assembly instructions, while the outlined cold path has its generic parameters erased to be reused by different generic instances.
 
