@@ -72,16 +72,11 @@ pub(crate) struct Slot<T> {
 impl<T> Slot<T> {
     #[inline(always)]
     unsafe fn write(&self, msg: T) {
-        // fence(Release);
-        // unsafe { self.msg.with_ref_mut(|m| m.write(msg)) };
         unsafe { atomic_memcpy::atomic_store(self.msg.get().cast(), msg, Relaxed) }
     }
 
     #[inline(always)]
     unsafe fn read(&self) -> MaybeUninit<T> {
-        // let msg = unsafe { self.msg.get().cast::<MaybeUninit<T>>().read_volatile() };
-        // fence(Acquire);
-        // msg
         unsafe { atomic_memcpy::atomic_load(self.msg.get().cast(), Relaxed) }
     }
 }
