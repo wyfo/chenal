@@ -837,6 +837,12 @@ impl<H: ChannelHalf + Clone> Weak<H> {
     }
 }
 
+impl<H: ChannelHalf + Clone> Drop for Weak<H> {
+    fn drop(&mut self) {
+        drop(unsafe { Arc::from_raw(Arc::as_ptr(self.0.chan())) });
+    }
+}
+
 impl<H: ChannelHalf + Clone> Clone for Weak<H> {
     fn clone(&self) -> Self {
         Self(ManuallyDrop::new(self.0.raw_clone()))

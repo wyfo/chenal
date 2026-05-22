@@ -131,8 +131,9 @@ fn tx_drop_closes<const UB: bool>(
     let _ = ub;
     let (tx, mut rx) = <Array<1, _, UB>>::new(2).channel();
     let tx2 = tx.clone();
-    assert!(!rx.is_closed());
+    let weak = tx2.downgrade();
     tx.try_send(42).unwrap();
+    assert!(!rx.is_closed());
     drop(tx2);
     assert!(!rx.is_closed());
     drop(tx);
@@ -140,6 +141,7 @@ fn tx_drop_closes<const UB: bool>(
     assert_eq!(rx.recv2(sync), Ok(42));
     assert_eq!(rx.try_recv(), Err(TryRecvError::Closed));
     assert_eq!(rx.recv2(sync), Err(RecvError));
+    assert!(weak.upgrade().is_none());
 }
 
 // Dropping the receiver closes the channel; sends return Closed.

@@ -2,7 +2,7 @@ use core::{
     pin::pin,
     task::{Context, Poll, Waker},
 };
-use std::thread;
+use std::{sync::Arc, thread};
 
 use chenal::{
     Channel, MRx, MTx,
@@ -117,8 +117,9 @@ fn tx_drop_closes<const UB: bool>(
     let _ = ub;
     let (tx, rx) = <Array<_, UB>>::new(2).channel();
     let tx2 = tx.clone();
-    assert!(!rx.is_closed());
+    let weak = tx2.downgrade();
     tx.try_send(42).unwrap();
+    assert!(!rx.is_closed());
     drop(tx2);
     assert!(!rx.is_closed());
     drop(tx);
@@ -126,6 +127,7 @@ fn tx_drop_closes<const UB: bool>(
     assert_eq!(rx.recv2(sync), Ok(42));
     assert_eq!(rx.try_recv(), Err(TryRecvError::Closed));
     assert_eq!(rx.recv2(sync), Err(RecvError));
+    assert!(weak.upgrade().is_none());
 }
 
 // Dropping the receiver closes the channel; sends return Closed.
@@ -136,11 +138,16 @@ fn rx_drop_closes<const UB: bool>(
 ) {
     let _ = ub;
     let (tx, rx) = <Array<_, UB>>::new(2).channel::<usize>();
+    let rx2 = rx.clone();
+    let weak = rx2.downgrade();
+    assert!(!tx.is_closed());
+    drop(rx2);
     assert!(!tx.is_closed());
     drop(rx);
     assert!(tx.is_closed());
     assert_eq!(tx.try_send(0), Err(TrySendError::Closed(0)));
     assert_eq!(tx.send2(0, sync), Err(SendError(0)));
+    assert!(weak.upgrade().is_none());
 }
 
 // Dropping the sender while recv is blocked wakes the receiver with RecvError.
@@ -265,29 +272,29 @@ fn send_future_poll_after_completion(#[values(false, true)] cancel: bool) {
     let _ = fut.as_mut().poll(&mut cx);
 }
 
-// TODO Uncomment when MPMC will be compatible with strict provenance
-// // Messages still in the buffer are dropped when the channel is dropped.
-// #[rstest]
-// #[case::empty(0, 0)]
-// #[case::full(0, 4)]
-// #[case::contiguous(0, 2)]
-// #[case::wrapped(3, 2)]
-// fn drop_buffered(#[case] offset: usize, #[case] msgs: usize) {
-//     let arc = Arc::new(());
-//     let (tx, rx) = <Array>::new(4).channel();
-//     assert_eq!(tx.capacity(), 4);
-//     assert_eq!(rx.capacity(), 4);
-//     for _ in 0..offset {
-//         tx.try_send(arc.clone()).unwrap();
-//         rx.try_recv().unwrap();
-//     }
-//     for _ in 0..msgs {
-//         tx.try_send(arc.clone()).unwrap();
-//     }
-//     assert_eq!(Arc::strong_count(&arc), 1 + msgs);
-//     drop((tx, rx));
-//     assert_eq!(Arc::strong_count(&arc), 1);
-// }
+#[cfg(not(miri))]
+// Messages still in the buffer are dropped when the channel is dropped.
+#[rstest]
+#[case::empty(0, 0)]
+#[case::full(0, 4)]
+#[case::contiguous(0, 2)]
+#[case::wrapped(3, 2)]
+fn drop_buffered(#[case] offset: usize, #[case] msgs: usize) {
+    let arc = Arc::new(());
+    let (tx, rx) = <Array>::new(4).channel();
+    assert_eq!(tx.capacity(), 4);
+    assert_eq!(rx.capacity(), 4);
+    for _ in 0..offset {
+        tx.try_send(arc.clone()).unwrap();
+        rx.try_recv().unwrap();
+    }
+    for _ in 0..msgs {
+        tx.try_send(arc.clone()).unwrap();
+    }
+    assert_eq!(Arc::strong_count(&arc), 1 + msgs);
+    drop((tx, rx));
+    assert_eq!(Arc::strong_count(&arc), 1);
+}
 
 // Invalid capacities are rejected.
 #[rstest]
