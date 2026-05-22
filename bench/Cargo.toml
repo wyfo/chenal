@@ -1,10 +1,13 @@
 [package]
-name = "mpsc-bench"
+name = "chenal-bench"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+bench = false
+
 [[bench]]
-name = "mpsc"
+name = "bench"
 harness = false
 
 [dependencies]

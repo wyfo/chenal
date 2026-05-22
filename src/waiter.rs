@@ -11,7 +11,7 @@ use aiq::{WaitQueue, sync::SyncPrimitives, wait_queue::Wait};
 use spmc_waker::SpmcWaker;
 
 pub(crate) trait Waiter: Default + 'static {
-    type Wait<'a>: Default
+    type Wait<'a>: Default + Send
     where
         Self: 'a;
     unsafe fn register<'a>(&'a self, wait: Pin<&mut Self::Wait<'a>>, waker: &Waker) -> bool;

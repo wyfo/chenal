@@ -32,6 +32,7 @@ impl fmt::Display for RecvWork {
 
 pub mod async_channel;
 pub mod chenal;
+pub mod chenal_32;
 pub mod chenal_loop;
 pub mod crossbeam;
 pub mod crossfire;
@@ -43,19 +44,23 @@ pub mod std;
 pub mod tachyonix;
 pub mod tokio;
 
-pub trait BlockingSender<T>: Clone + Send + 'static {
+pub trait BlockingSender<T>: Send + 'static {
     fn send(&mut self, msg: T);
+    fn clone(&self) -> Self;
 }
 
-pub trait AsyncSender<T>: Clone + Send + 'static {
+pub trait AsyncSender<T>: Send + 'static {
     // `&mut self` because of `Sink` channels
     fn send(&mut self, msg: T) -> impl Future<Output = ()> + Send + '_;
+    fn clone(&self) -> Self;
 }
 
-pub trait BlockingReceiver<T> {
+pub trait BlockingReceiver<T>: Send + 'static {
     fn recv(&mut self) -> T;
+    fn clone(&self) -> Self;
 }
 
-pub trait AsyncReceiver<T> {
+pub trait AsyncReceiver<T>: Send + 'static {
     fn recv(&mut self) -> impl Future<Output = T> + Send + '_;
+    fn clone(&self) -> Self;
 }
