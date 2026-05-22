@@ -2,7 +2,7 @@ use core::{
     pin::pin,
     task::{Context, Poll, Waker},
 };
-use std::{iter, sync::Arc, thread, thread::ScopedJoinHandle};
+use std::{iter, sync::Arc, thread};
 
 use chenal::{
     Channel, MTx, Rx,
@@ -167,7 +167,7 @@ fn tx_drop_while_recv_waiting<const UB: bool>(
 ) {
     let _ = ub;
     let (tx, mut rx) = <Array<1, _, UB>>::new(1).channel::<usize>();
-    let recv = std::thread::spawn(move || rx.recv2(sync));
+    let recv = thread::spawn(move || rx.recv2(sync));
     drop(tx);
     assert_eq!(recv.join().unwrap(), Err(RecvError));
 }
@@ -181,7 +181,7 @@ fn rx_drop_while_send_waiting<const UB: bool>(
     let _ = ub;
     let (tx, rx) = <Array<1, _, UB>>::new(1).channel();
     tx.try_send(0).unwrap();
-    let send = std::thread::spawn(move || tx.send2(1, sync));
+    let send = thread::spawn(move || tx.send2(1, sync));
     drop(rx);
     assert_eq!(send.join().unwrap(), Err(SendError(1)));
 }
@@ -200,13 +200,11 @@ fn concurrent_close<const BS: usize, const UB: bool>(
         let s2 = s.spawn(|| tx.send2(1, sync));
         let s3 = s.spawn(|| tx.send2(2, sync));
         s.spawn(|| tx.close());
-        let err = |res: ScopedJoinHandle<Result<(), SendError<i32>>>| {
-            res.join().unwrap().err().map(|SendError(m)| m)
-        };
+        let send = [s1, s2, s3]
+            .into_iter()
+            .flat_map(|s| Some(s.join().unwrap().err()?.0));
         iter::from_fn(|| rx.recv2(sync).ok())
-            .chain(err(s1))
-            .chain(err(s2))
-            .chain(err(s3))
+            .chain(send)
             .collect::<Vec<_>>()
     });
     values.sort_unstable();

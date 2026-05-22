@@ -158,7 +158,7 @@ fn tx_drop_while_recv_waiting<const UB: bool>(
 ) {
     let _ = ub;
     let (tx, rx) = <Array<_, UB>>::new(1).channel::<usize>();
-    let recv = std::thread::spawn(move || rx.recv2(sync));
+    let recv = thread::spawn(move || rx.recv2(sync));
     drop(tx);
     assert_eq!(recv.join().unwrap(), Err(RecvError));
 }
@@ -172,7 +172,7 @@ fn rx_drop_while_send_waiting<const UB: bool>(
     let _ = ub;
     let (tx, rx) = <Array<_, UB>>::new(1).channel();
     tx.try_send(0).unwrap();
-    let send = std::thread::spawn(move || tx.send2(1, sync));
+    let send = thread::spawn(move || tx.send2(1, sync));
     drop(rx);
     assert_eq!(send.join().unwrap(), Err(SendError(1)));
 }
@@ -254,6 +254,23 @@ fn recv_future_cancel<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
         tx.try_send(0).unwrap();
     }
     assert_eq!(rx.try_recv(), Ok(0));
+}
+
+// Canceling a notified RecvFuture passes the notification to the next waiter.
+#[rstest]
+fn recv_future_cancel_wakes_next<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
+    let _ = ub;
+    let (tx, rx) = <Array<_, UB>>::new(1).channel();
+    let rx2 = rx.clone();
+    let mut cx = Context::from_waker(Waker::noop());
+    let mut recv2 = pin!(rx2.recv());
+    {
+        let mut recv1 = pin!(rx.recv());
+        assert_eq!(recv1.as_mut().poll(&mut cx), Poll::Pending);
+        assert_eq!(recv2.as_mut().poll(&mut cx), Poll::Pending);
+        tx.try_send(0).unwrap(); // notifies recv1
+    } // recv1 dropped, should re-notify recv2
+    assert_eq!(recv2.as_mut().poll(&mut cx), Poll::Ready(Ok(0)));
 }
 
 // SendFuture panics if polled after completion.
