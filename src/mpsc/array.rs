@@ -24,7 +24,7 @@ use crate::{
     sync::{DefaultSyncPrimitives, SyncPrimitives},
 };
 
-/// Bounded channel implementation.
+/// Bounded MPSC channel implementation.
 ///
 /// It allocates an array of `capacity` message slots. If `BLOCK_SIZE > 1` the array is fragmented
 /// into blocks, which are released by the receiver only after their last slot has been read.

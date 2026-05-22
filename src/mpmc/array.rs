@@ -24,7 +24,7 @@ use crate::{
     sync::{DefaultSyncPrimitives, SyncPrimitives},
 };
 
-/// Bounded channel implementation.
+/// Bounded MPMC channel implementation.
 ///
 /// It allocates an array of `capacity` message slots.
 ///

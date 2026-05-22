@@ -19,7 +19,7 @@ use crate::{
     loom::{AtomicUsizeExt, UnsafeCellExt, cell::UnsafeCell},
 };
 
-/// Bounded channel implementation.
+/// Bounded SPSC channel implementation.
 ///
 /// It allocates an array of `capacity` message slots. If `BLOCK_SIZE > 1` the array is fragmented
 /// into blocks, which are released by the receiver only after their last slot has been read.
@@ -150,9 +150,6 @@ impl<const BLOCK_SIZE: usize, C: Capacity> internal::Channel for Array<BLOCK_SIZ
         state: Self::TxSlot<T>,
         msg: T,
     ) -> Result<(), SendError<T>> {
-        if chan.closed.load(SeqCst) != 0 {
-            return Err(SendError(msg));
-        }
         let tail_idx = state & chan.slot_mask();
         let slot = unsafe { chan.get_unchecked(tail_idx) };
         unsafe { slot.with_ref_mut(|m| m.write(msg)) };
