@@ -160,7 +160,7 @@ fn bench_channel<T: Default + Debug + Unpin + 'static, S: Sender<T>, R: Receiver
 ) {
     let msg_size = size_of::<T>() / 8;
     for &sender_count in PARALLELISM {
-        for &receiver_count in &[1] {
+        for &receiver_count in PARALLELISM {
             for &capacity in CAPACITIES {
                 let check_channel = || {
                     let (tx, rx) = channel(capacity);
