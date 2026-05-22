@@ -250,6 +250,11 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
             let slot = unsafe { chan.get_unchecked(head_idx) };
             let ordering = if UNBOUNDED_BACKOFF { Acquire } else { SeqCst };
             if slot.stamp.load(ordering) != *head {
+                let head_reload = chan.rx_state.load(SeqCst);
+                if head_reload != *head {
+                    *head = head_reload;
+                    continue;
+                }
                 if UNBOUNDED_BACKOFF {
                     let tail = chan.tx_state.load(SeqCst) & LB;
                     let closed_flag = chan.closed_flag();
