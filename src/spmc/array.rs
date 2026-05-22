@@ -1,4 +1,6 @@
 use core::{
+    cell::UnsafeCell,
+    marker::PhantomData,
     mem::MaybeUninit,
     ops::Deref,
     sync::atomic::{
@@ -7,52 +9,54 @@ use core::{
     },
 };
 
+use aiq::WaitQueue;
+use crossbeam_utils::Backoff;
 use spmc_waker::SpmcWaker;
 
 use crate::{
-    Channel, Rx, Tx,
+    Channel, MRx, Tx,
     array::{HB_SHIFT, LB, Slots},
     capacity::Capacity,
     channel::{BoundedChannel, Chan},
     errors::{SendError, TryAcquireError},
     internal,
-    loom::{AtomicUsizeExt, UnsafeCellExt, cell::UnsafeCell},
+    loom::{AtomicUsizeExt, RacyUnsafeCellExt, UnsafeCellExt},
+    sync::{DefaultSyncPrimitives, SyncPrimitives},
 };
 
-/// Bounded SPSC channel implementation.
+/// Bounded SPMC channel implementation.
 ///
-/// It allocates an array of `capacity` message slots. If `BLOCK_SIZE > 1` the array is fragmented
-/// into blocks, which are released by the receiver only after their last slot has been read.
-/// It means the exact capacity of the channel at one instant has a lower bound to
-/// `capacity - BLOCK_SIZE`. As a consequence, every `recv` operation except the last in a
-/// block uses relaxed synchronization, which is otherwise expensive on `x86_64` architecture.
-pub struct Array<const BLOCK_SIZE: usize = 1, C: Capacity = usize> {
+/// It allocates an array of `capacity` message slots.
+///
+/// # Soundness
+///
+/// Channel's algorithm relies on an **undefined behavior**, which is known to
+/// [work in practice](https://github.com/rust-lang/unsafe-code-guidelines/blob/master/resources/deliberate-ub.md)
+/// and is used in other widespread algorithms like SeqLocks.
+///
+/// The progresses on a sound alternative are tracked in
+/// [RFC 3301](https://github.com/rust-lang/rfcs/pull/3301)
+pub struct Array<C: Capacity = usize, SP: SyncPrimitives = DefaultSyncPrimitives> {
     capacity: C,
+    sync: PhantomData<SP>,
 }
 
-impl<const BLOCK_SIZE: usize, C: Capacity> Array<BLOCK_SIZE, C> {
+impl<C: Capacity, SP: SyncPrimitives> Array<C, SP> {
     /// Constructs a new `Array` with the specified capacity.
     pub fn new(capacity: C) -> Self {
-        const {
-            assert!(
-                BLOCK_SIZE.is_power_of_two(),
-                "`BLOCK_SIZE` must be a power of 2"
-            );
+        Self {
+            capacity,
+            sync: PhantomData,
         }
-        assert!(
-            capacity.get().is_multiple_of(BLOCK_SIZE),
-            "capacity must be a multiple of `BLOCK_SIZE`"
-        );
-        Self { capacity }
     }
 }
 
-impl<const BLOCK_SIZE: usize, C: Capacity> Channel for Array<BLOCK_SIZE, C> {
+impl<C: Capacity, SP: SyncPrimitives> Channel for Array<C, SP> {
     type TxHalf<T> = Tx<T, Self>;
-    type RxHalf<T> = Rx<T, Self>;
+    type RxHalf<T> = MRx<T, Self>;
 }
 
-impl<const BLOCK_SIZE: usize, C: Capacity> BoundedChannel for Array<BLOCK_SIZE, C> {}
+impl<C: Capacity, SP: SyncPrimitives> BoundedChannel for Array<C, SP> {}
 
 type Slot<T> = UnsafeCell<MaybeUninit<T>>;
 
@@ -69,12 +73,12 @@ impl<T, C: Capacity> Deref for Storage<T, C> {
     }
 }
 
-impl<const BLOCK_SIZE: usize, C: Capacity> internal::Channel for Array<BLOCK_SIZE, C> {
+impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
     type Storage<T> = Storage<T, C>;
 
     fn storage<T>(self) -> Self::Storage<T> {
         Storage {
-            slots: Slots::new(self.capacity, |_, _| UnsafeCell::new(MaybeUninit::uninit())),
+            slots: Slots::new(self.capacity, |_, _| UnsafeCell::new_racy()),
             closed: AtomicUsize::new(0),
         }
     }
@@ -103,7 +107,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity> internal::Channel for Array<BLOCK_SIZ
     type TxState<T> = usize;
     type TxSlot<T> = usize;
     type TxWaiter = SpmcWaker<false>;
-    type TxRefCount = AtomicUsize;
+    type TxRefCount = ();
 
     fn tx_init_state<T>(storage: &Self::Storage<T>) -> Self::TxAtomicState<T> {
         let tail = 0;
@@ -114,7 +118,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity> internal::Channel for Array<BLOCK_SIZ
     fn is_full<T>(chan: &Chan<T, Self>) -> bool {
         let tail = chan.tx_state.load(Relaxed) & LB;
         let head = chan.rx_state.load(Relaxed) & LB;
-        let max_tail = head.wrapping_add(chan.lap()) & LB & !(BLOCK_SIZE - 1);
+        let max_tail = head.wrapping_add(chan.lap()) & LB;
         tail == max_tail
     }
 
@@ -138,7 +142,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity> internal::Channel for Array<BLOCK_SIZ
         }
         let tail = *state & LB;
         let head = chan.rx_state.load(SeqCst);
-        let max_tail = head.wrapping_add(chan.lap()) & LB & !(BLOCK_SIZE - 1);
+        let max_tail = head.wrapping_add(chan.lap()) & LB;
         if max_tail == tail {
             return Err(TryAcquireError::Unavailable);
         }
@@ -152,14 +156,14 @@ impl<const BLOCK_SIZE: usize, C: Capacity> internal::Channel for Array<BLOCK_SIZ
     ) -> Result<(), SendError<T>> {
         let tail_idx = state & chan.slot_mask();
         let slot = unsafe { chan.get_unchecked(tail_idx) };
-        unsafe { slot.with_ref_mut(|m| m.write(msg)) };
+        unsafe { slot.write_racy(msg) };
         let new_state = chan.wrap_around(tail_idx, state, true);
         chan.tx_state.store(new_state, SeqCst);
         if chan.closed.load(SeqCst) != 0 {
             #[cold]
             #[inline(never)]
-            fn handle_closed<const BLOCK_SIZE: usize, C: Capacity, T>(
-                chan: &Chan<T, Array<BLOCK_SIZE, C>>,
+            fn handle_closed<C: Capacity, SP: SyncPrimitives, T>(
+                chan: &Chan<T, Array<C, SP>>,
                 state: usize,
             ) -> Result<(), SendError<T>> {
                 let new_tail = chan.wrap_around(state & chan.slot_mask(), state, true) & LB;
@@ -169,7 +173,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity> internal::Channel for Array<BLOCK_SIZ
                 {
                     debug_assert!(closed >> 2 == state & LB);
                     let slot = unsafe { chan.get_unchecked(state & chan.slot_mask()) };
-                    let msg = unsafe { slot.with_ref(|m| m.assume_init_read()) };
+                    let msg = unsafe { slot.read_racy().assume_init() };
                     return Err(SendError(msg));
                 }
                 Ok(())
@@ -181,10 +185,9 @@ impl<const BLOCK_SIZE: usize, C: Capacity> internal::Channel for Array<BLOCK_SIZ
 
     type RxAtomicState<T> = AtomicUsize;
     type RxState<T> = usize;
-    type RxSlot<T> = usize;
-    type RxWaiter = SpmcWaker<false>;
-    type RxRefCount = ();
-    const WAKE_TX_AFTER_READ: bool = false;
+    type RxSlot<T> = T;
+    type RxWaiter = WaitQueue<SP>;
+    type RxRefCount = AtomicUsize;
 
     fn rx_init_state<T>(_storage: &Self::Storage<T>) -> Self::RxAtomicState<T> {
         AtomicUsize::new(0)
@@ -197,49 +200,70 @@ impl<const BLOCK_SIZE: usize, C: Capacity> internal::Channel for Array<BLOCK_SIZ
     }
 
     fn rx_acquire_slot<T>(chan: &Chan<T, Self>) -> Result<Self::RxSlot<T>, Self::RxState<T>> {
-        let state = chan.rx_state.load(Relaxed);
+        let state = chan.rx_state.load(Acquire);
         let head = state & LB;
         let tail = state >> HB_SHIFT;
         if head == tail {
             return Err(state);
         }
-        Ok(state)
+        let head_idx = state & chan.slot_mask();
+        let slot = unsafe { chan.get_unchecked(head_idx) };
+        let msg = unsafe { slot.read_racy() };
+        let new_state = chan.wrap_around(head_idx, state, true);
+        chan.rx_state
+            .compare_exchange_weak(state, new_state, SeqCst, Acquire)
+            .map(|_| unsafe { msg.assume_init() })
     }
 
     fn rx_acquire_slot_cold<T>(
         chan: &Chan<T, Self>,
         state: &mut Self::RxState<T>,
-        _first_call: bool,
+        first_call: bool,
     ) -> Result<Self::RxSlot<T>, TryAcquireError> {
-        let head = *state & LB;
-        let closed = chan.closed.load(SeqCst);
-        let mut tail = chan.tx_state.load(SeqCst) & LB;
-        if closed != 0
-            && let Err(closed) = (chan.closed).compare_exchange(1, 2 | (tail << 2), SeqCst, Acquire)
-        {
-            tail = closed >> 2;
-        }
-        if head == tail {
-            return Err(if closed != 0 {
-                TryAcquireError::Closed
+        let mut backoff = (!first_call).then(Backoff::new);
+        loop {
+            let head = *state & LB;
+            let tail = *state >> HB_SHIFT;
+            let head_idx = *state & chan.slot_mask();
+            let mut new_state = chan.wrap_around(head_idx, *state, true);
+            if head == tail {
+                let state_reload = chan.rx_state.load(SeqCst);
+                if state_reload != *state {
+                    *state = state_reload;
+                    continue;
+                }
+                let closed = chan.closed.load(SeqCst);
+                let mut tail = chan.tx_state.load(SeqCst) & LB;
+                if closed != 0
+                    && let Err(closed) =
+                        (chan.closed).compare_exchange(1, 2 | (tail << 2), SeqCst, SeqCst)
+                {
+                    tail = closed >> 2;
+                }
+                if head == tail {
+                    return Err(if closed != 0 {
+                        TryAcquireError::Closed
+                    } else {
+                        TryAcquireError::Unavailable
+                    });
+                }
+                new_state = (new_state & LB) | (tail << HB_SHIFT);
+            }
+            let slot = unsafe { chan.get_unchecked(head_idx) };
+            let msg = unsafe { slot.read_racy() };
+            if let Some(backoff) = backoff.as_ref() {
+                backoff.spin();
             } else {
-                TryAcquireError::Unavailable
-            });
+                backoff = Some(Backoff::new());
+            }
+            match (chan.rx_state).compare_exchange_weak(*state, new_state, SeqCst, SeqCst) {
+                Ok(_) => return Ok(unsafe { msg.assume_init() }),
+                Err(s) => *state = s,
+            }
         }
-        Ok(head | tail << HB_SHIFT)
     }
 
-    fn read_slot<T>(chan: &Chan<T, Self>, state: Self::RxSlot<T>) -> T {
-        let head_idx = state & chan.slot_mask();
-        let slot = unsafe { chan.get_unchecked(head_idx) };
-        let msg = unsafe { slot.with_ref(|m| m.assume_init_read()) };
-        let new_state = chan.wrap_around(head_idx, state, true);
-        if new_state.is_multiple_of(BLOCK_SIZE) {
-            chan.rx_state.store(new_state, SeqCst);
-            chan.tx_waiter.wake_cold();
-        } else {
-            chan.rx_state.store(new_state, Relaxed);
-        }
+    fn read_slot<T>(_chan: &Chan<T, Self>, msg: Self::RxSlot<T>) -> T {
         msg
     }
 }

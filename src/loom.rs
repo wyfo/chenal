@@ -1,6 +1,7 @@
 #[cfg(feature = "std")]
 extern crate std;
 
+use core::mem::MaybeUninit;
 #[cfg(not(loom))]
 pub(crate) use core::*;
 #[cfg(not(loom))]
@@ -145,6 +146,7 @@ pub(crate) trait UnsafeCellExt<T> {
     unsafe fn with_ref<'a, R, F: FnOnce(&'a T) -> R>(&'a self, f: F) -> R
     where
         T: 'a;
+
     /// # Safety
     ///
     /// Cell content must be safe to deref mutably.
@@ -173,6 +175,63 @@ impl<T> UnsafeCellExt<T> for cell::UnsafeCell<T> {
         return f(unsafe { &mut *self.get() });
         #[cfg(loom)]
         return self.with_mut(|ptr| f(unsafe { &mut *ptr }));
+    }
+}
+
+pub(crate) trait RacyUnsafeCellExt<T> {
+    fn new_racy() -> Self;
+    unsafe fn write_racy(&self, t: T);
+    unsafe fn read_racy(&self) -> MaybeUninit<T>;
+}
+
+impl<T> RacyUnsafeCellExt<T> for core::cell::UnsafeCell<MaybeUninit<T>> {
+    #[cfg(not(miri_racy))]
+    fn new_racy() -> Self {
+        Self::new(MaybeUninit::uninit())
+    }
+
+    #[cfg(miri_racy)]
+    fn new_racy() -> Self {
+        const { assert!(size_of::<T>() == size_of::<*mut ()>()) };
+        let mut t = MaybeUninit::uninit();
+        let ptr = ptr::from_mut(&mut t).cast::<*mut ()>();
+        unsafe { ptr.write(ptr::null_mut()) };
+        Self::new(t)
+    }
+
+    #[cfg(not(miri_racy))]
+    unsafe fn write_racy(&self, t: T) {
+        use core::sync::atomic::{Ordering::Release, fence};
+        fence(Release);
+        unsafe { (*self.get()).write(t) };
+    }
+
+    #[cfg(miri_racy)]
+    unsafe fn write_racy(&self, t: T) {
+        use core::{
+            mem::ManuallyDrop,
+            sync::atomic::{AtomicPtr, Ordering::Relaxed},
+        };
+        let t = ManuallyDrop::new(t);
+        let ptr = ptr::from_ref(&t).cast::<*mut ()>();
+        unsafe { (*self.get().cast::<AtomicPtr<()>>()).store(ptr.read(), Relaxed) }
+    }
+
+    #[cfg(not(miri_racy))]
+    unsafe fn read_racy(&self) -> MaybeUninit<T> {
+        use core::sync::atomic::{Ordering::Acquire, fence};
+        let msg = unsafe { self.get().cast::<MaybeUninit<T>>().read_volatile() };
+        fence(Acquire);
+        msg
+    }
+
+    #[cfg(miri_racy)]
+    unsafe fn read_racy(&self) -> MaybeUninit<T> {
+        use core::sync::atomic::{AtomicPtr, Ordering::Relaxed};
+        let mut res = MaybeUninit::uninit();
+        let msg = unsafe { (*self.get().cast::<AtomicPtr<()>>()).load(Relaxed) };
+        unsafe { ptr::from_mut(&mut res).cast::<*mut ()>().write(msg) };
+        res
     }
 }
 

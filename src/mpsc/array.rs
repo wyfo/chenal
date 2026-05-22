@@ -180,7 +180,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
             } else {
                 backoff = Some(Backoff::new());
             }
-            match (chan.tx_state).compare_exchange_weak(*state, next_state, SeqCst, Relaxed) {
+            match (chan.tx_state).compare_exchange_weak(*state, next_state, SeqCst, SeqCst) {
                 Ok(_) => {
                     let slot = unsafe { chan.get_unchecked(tail_idx) }.into();
                     return Ok((slot, tail));

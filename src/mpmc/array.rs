@@ -20,7 +20,7 @@ use crate::{
     channel::{BoundedChannel, Chan},
     errors::{SendError, TryAcquireError},
     internal,
-    loom::{AtomicUsizeExt, UnsafeCellExt},
+    loom::{AtomicUsizeExt, RacyUnsafeCellExt, UnsafeCellExt},
     sync::{DefaultSyncPrimitives, SyncPrimitives},
 };
 
@@ -28,8 +28,13 @@ use crate::{
 ///
 /// It allocates an array of `capacity` message slots.
 ///
-/// Channel's algorithm uses [`atomic_memcpy`], which is not compatible with strict provenance.
-/// The progress on a provenance-compatible alternative are tracked in
+/// # Soundness
+///
+/// Channel's algorithm relies on an **undefined behavior**, which is known to
+/// [work in practice](https://github.com/rust-lang/unsafe-code-guidelines/blob/master/resources/deliberate-ub.md)
+/// and is used in other widespread algorithms like SeqLocks.
+///
+/// The progresses on a sound alternative are tracked in
 /// [RFC 3301](https://github.com/rust-lang/rfcs/pull/3301)
 pub struct Array<
     C: Capacity = usize,
@@ -69,18 +74,6 @@ pub(crate) struct Slot<T> {
     stamp: AtomicUsize,
 }
 
-impl<T> Slot<T> {
-    #[inline(always)]
-    unsafe fn write(&self, msg: T) {
-        unsafe { atomic_memcpy::atomic_store(self.msg.get().cast(), msg, Relaxed) }
-    }
-
-    #[inline(always)]
-    unsafe fn read(&self) -> MaybeUninit<T> {
-        unsafe { atomic_memcpy::atomic_load(self.msg.get().cast(), Relaxed) }
-    }
-}
-
 impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::Channel
     for Array<C, UNBOUNDED_BACKOFF, SP>
 {
@@ -88,7 +81,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
 
     fn storage<T>(self) -> Self::Storage<T> {
         Slots::new(self.capacity, |i, lap| Slot {
-            msg: UnsafeCell::new(MaybeUninit::uninit()),
+            msg: UnsafeCell::new_racy(),
             stamp: AtomicUsize::new(i.wrapping_sub(lap) & LB),
         })
     }
@@ -181,7 +174,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
             } else {
                 backoff = Some(Backoff::new());
             }
-            match (chan.tx_state).compare_exchange_weak(*state, next_state, SeqCst, Relaxed) {
+            match (chan.tx_state).compare_exchange_weak(*state, next_state, SeqCst, SeqCst) {
                 Ok(_) => {
                     let slot = unsafe { chan.get_unchecked(tail_idx) }.into();
                     return Ok((slot, tail));
@@ -196,7 +189,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
         (slot, tail): Self::TxSlot<T>,
         msg: T,
     ) -> Result<(), SendError<T>> {
-        unsafe { slot.as_ref().write(msg) };
+        unsafe { slot.as_ref().msg.write_racy(msg) };
         let order = if UNBOUNDED_BACKOFF { Release } else { SeqCst };
         unsafe { slot.as_ref().stamp.store(tail, order) };
         Ok(())
@@ -226,7 +219,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
         if slot.stamp.load(Acquire) != head {
             return Err(head);
         }
-        let msg = unsafe { slot.read() };
+        let msg = unsafe { slot.msg.read_racy() };
         let new_head = chan.wrap_around(head_idx, head, false);
         chan.rx_state
             .compare_exchange_weak(head, new_head, SeqCst, Relaxed)
@@ -274,14 +267,14 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
                     return Err(TryAcquireError::Unavailable);
                 }
             }
-            let msg = unsafe { slot.read() };
+            let msg = unsafe { slot.msg.read_racy() };
             let new_head = chan.wrap_around(head_idx, *head, false);
             if let Some(backoff) = backoff.as_ref() {
                 backoff.spin();
             } else {
                 backoff = Some(Backoff::new());
             }
-            match (chan.rx_state).compare_exchange_weak(*head, new_head, SeqCst, Relaxed) {
+            match (chan.rx_state).compare_exchange_weak(*head, new_head, SeqCst, SeqCst) {
                 Ok(_) => return Ok(unsafe { msg.assume_init() }),
                 Err(h) => *head = h,
             }

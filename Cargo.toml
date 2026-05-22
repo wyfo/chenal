@@ -14,12 +14,11 @@ rust-version = "1.87"
 all-features = true
 
 [features]
-default = ["std", "mpmc"]
+default = ["std"]
 blocking = ["std"]
 compat-tokio = ["dep:tokio"]
 compat-tokio-time = ["compat-tokio", "tokio/time"]
 compat-std = ["blocking"]
-mpmc = ["atomic-memcpy"]
 std = ["aiq/std", "crossbeam-utils/std"]
 stream = ["dep:futures-core"]
 
@@ -51,7 +50,11 @@ required-features = ["blocking"]
 
 [[test]]
 name = "mpmc_array"
-required-features = ["blocking", "mpmc"]
+required-features = ["blocking"]
+
+[[test]]
+name = "spmc_array"
+required-features = ["blocking"]
 
 [[test]]
 name = "spsc_array"
@@ -66,7 +69,7 @@ name = "compat_tokio"
 required-features = ["blocking", "compat-tokio"]
 
 [lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)', 'cfg(miri_racy)'] }
 unsafe_op_in_unsafe_fn = "deny"
 
 [lints.clippy]

@@ -5,22 +5,18 @@ use core::{
 use std::{sync::Arc, thread};
 
 use chenal::{
-    Channel, MRx, MTx,
+    Channel, MRx, Tx,
     errors::{RecvError, SendError, TryRecvError, TrySendError},
-    mpmc::Array,
+    spmc::Array,
 };
 use futures::executor::block_on;
 use rstest::rstest;
 
-struct Bool<const BOOL: bool>;
-const TRUE: Bool<true> = Bool::<true>;
-const FALSE: Bool<false> = Bool::<false>;
-
 trait Send2<T> {
-    fn send2(&self, msg: T, sync: bool) -> Result<(), SendError<T>>;
+    fn send2(&mut self, msg: T, sync: bool) -> Result<(), SendError<T>>;
 }
-impl<T, const UNBOUNDED_BACKOFF: bool> Send2<T> for MTx<T, Array<usize, UNBOUNDED_BACKOFF>> {
-    fn send2(&self, msg: T, sync: bool) -> Result<(), SendError<T>> {
+impl<T> Send2<T> for Tx<T, Array<usize>> {
+    fn send2(&mut self, msg: T, sync: bool) -> Result<(), SendError<T>> {
         if sync {
             self.send_blocking(msg)
         } else {
@@ -31,7 +27,7 @@ impl<T, const UNBOUNDED_BACKOFF: bool> Send2<T> for MTx<T, Array<usize, UNBOUNDE
 trait Recv2<T> {
     fn recv2(&self, sync: bool) -> Result<T, RecvError>;
 }
-impl<T, const UNBOUNDED_BACKOFF: bool> Recv2<T> for MRx<T, Array<usize, UNBOUNDED_BACKOFF>> {
+impl<T> Recv2<T> for MRx<T, Array<usize>> {
     fn recv2(&self, sync: bool) -> Result<T, RecvError> {
         if sync {
             self.recv_blocking()
@@ -42,16 +38,15 @@ impl<T, const UNBOUNDED_BACKOFF: bool> Recv2<T> for MRx<T, Array<usize, UNBOUNDE
 }
 
 #[rstest]
-fn mpmc<const UB: bool>(#[values(false, true)] sync: bool, #[values(FALSE, TRUE)] ub: Bool<UB>) {
-    let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(2).channel::<usize>();
+fn spmc(#[values(false, true)] sync: bool) {
+    let (mut tx, rx) = <Array>::new(2).channel::<usize>();
     let mut values = thread::scope(|s| {
-        s.spawn(|| tx.send2(0, sync).unwrap());
-        s.spawn(|| tx.send2(1, sync).unwrap());
-        s.spawn(|| tx.send2(2, sync).unwrap());
         let r1 = s.spawn(|| rx.recv2(sync).unwrap());
         let r2 = s.spawn(|| rx.recv2(sync).unwrap());
         let r3 = s.spawn(|| rx.recv2(sync).unwrap());
+        for i in 0..3 {
+            tx.send2(i, sync).unwrap();
+        }
         vec![r1.join().unwrap(), r2.join().unwrap(), r3.join().unwrap()]
     });
     values.sort_unstable();
@@ -60,9 +55,8 @@ fn mpmc<const UB: bool>(#[values(false, true)] sync: bool, #[values(FALSE, TRUE)
 
 // Sequential send/recv preserves FIFO order.
 #[rstest]
-fn sequential<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
-    let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(2).channel::<usize>();
+fn sequential() {
+    let (mut tx, rx) = <Array>::new(2).channel::<usize>();
     tx.try_send(1).unwrap();
     tx.try_send(2).unwrap();
     assert_eq!(rx.try_recv(), Ok(1));
@@ -72,9 +66,8 @@ fn sequential<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
 
 // Ring buffer wraps around correctly across multiple laps.
 #[rstest]
-fn wrap_around<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
-    let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(2).channel::<usize>();
+fn wrap_around() {
+    let (mut tx, rx) = <Array>::new(2).channel::<usize>();
     for i in 0..4 {
         tx.try_send(i).unwrap();
         assert_eq!(rx.try_recv(), Ok(i));
@@ -83,9 +76,8 @@ fn wrap_around<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
 
 // try_send on a full channel returns Full without blocking.
 #[rstest]
-fn try_send_full<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
-    let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(1).channel::<usize>();
+fn try_send_full() {
+    let (mut tx, rx) = <Array>::new(1).channel::<usize>();
     assert!(!tx.is_full());
     tx.try_send(0).unwrap();
     assert!(tx.is_full());
@@ -97,9 +89,8 @@ fn try_send_full<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
 
 // try_recv on an empty channel returns Empty without blocking.
 #[rstest]
-fn try_recv_empty<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
-    let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(1).channel::<usize>();
+fn try_recv_empty() {
+    let (mut tx, rx) = <Array>::new(1).channel::<usize>();
     assert!(rx.is_empty());
     assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
     tx.try_send(0).unwrap();
@@ -110,34 +101,21 @@ fn try_recv_empty<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
 
 // Dropping all senders closes the channel; buffered messages are still readable.
 #[rstest]
-fn tx_drop_closes<const UB: bool>(
-    #[values(false, true)] sync: bool,
-    #[values(FALSE, TRUE)] ub: Bool<UB>,
-) {
-    let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(2).channel::<usize>();
-    let tx2 = tx.clone();
-    let weak = tx2.downgrade();
+fn tx_drop_closes(#[values(false, true)] sync: bool) {
+    let (mut tx, rx) = <Array>::new(2).channel::<usize>();
     tx.try_send(42).unwrap();
-    assert!(!rx.is_closed());
-    drop(tx2);
     assert!(!rx.is_closed());
     drop(tx);
     assert!(rx.is_closed());
     assert_eq!(rx.recv2(sync), Ok(42));
     assert_eq!(rx.try_recv(), Err(TryRecvError::Closed));
     assert_eq!(rx.recv2(sync), Err(RecvError));
-    assert!(weak.upgrade().is_none());
 }
 
 // Dropping the receiver closes the channel; sends return Closed.
 #[rstest]
-fn rx_drop_closes<const UB: bool>(
-    #[values(false, true)] sync: bool,
-    #[values(FALSE, TRUE)] ub: Bool<UB>,
-) {
-    let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(2).channel::<usize>();
+fn rx_drop_closes(#[values(false, true)] sync: bool) {
+    let (mut tx, rx) = <Array>::new(2).channel::<usize>();
     let rx2 = rx.clone();
     let weak = rx2.downgrade();
     assert!(!tx.is_closed());
@@ -152,12 +130,8 @@ fn rx_drop_closes<const UB: bool>(
 
 // Dropping the sender while recv is blocked wakes the receiver with RecvError.
 #[rstest]
-fn tx_drop_while_recv_waiting<const UB: bool>(
-    #[values(false, true)] sync: bool,
-    #[values(FALSE, TRUE)] ub: Bool<UB>,
-) {
-    let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(1).channel::<usize>();
+fn tx_drop_while_recv_waiting(#[values(false, true)] sync: bool) {
+    let (tx, rx) = <Array>::new(1).channel::<usize>();
     let recv = thread::spawn(move || rx.recv2(sync));
     drop(tx);
     assert_eq!(recv.join().unwrap(), Err(RecvError));
@@ -165,12 +139,8 @@ fn tx_drop_while_recv_waiting<const UB: bool>(
 
 // Dropping the receiver while send is blocked wakes the sender with SendError.
 #[rstest]
-fn rx_drop_while_send_waiting<const UB: bool>(
-    #[values(false, true)] sync: bool,
-    #[values(FALSE, TRUE)] ub: Bool<UB>,
-) {
-    let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(1).channel::<usize>();
+fn rx_drop_while_send_waiting(#[values(false, true)] sync: bool) {
+    let (mut tx, rx) = <Array>::new(1).channel::<usize>();
     tx.try_send(0).unwrap();
     let send = thread::spawn(move || tx.send2(1, sync));
     drop(rx);
@@ -179,25 +149,17 @@ fn rx_drop_while_send_waiting<const UB: bool>(
 
 // Closing the channel concurrently with sends; all messages are either received or returned as errors.
 #[rstest]
-fn concurrent_close<const UB: bool>(
-    #[values(false, true)] sync: bool,
-
-    #[values(FALSE, TRUE)] ub: Bool<UB>,
-) {
-    let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(2).channel::<usize>();
-    let err = |res| Result::err(res).map(|SendError(m)| m);
+fn concurrent_close(#[values(false, true)] sync: bool) {
+    let (mut tx, rx) = <Array>::new(2).channel::<usize>();
     let mut values = thread::scope(|s| {
-        let s1 = s.spawn(|| err(tx.send2(0, sync)));
-        let s2 = s.spawn(|| err(tx.send2(1, sync)));
-        let s3 = s.spawn(|| err(tx.send2(2, sync)));
         let r1 = s.spawn(|| rx.recv2(sync).ok());
         let r2 = s.spawn(|| rx.recv2(sync).ok());
         let r3 = s.spawn(|| rx.recv2(sync).ok());
-        s.spawn(|| tx.close());
-        [s1, s2, s3, r1, r2, r3]
-            .into_iter()
-            .flat_map(|t| t.join().unwrap())
+        s.spawn(|| rx.close());
+        let recv = [r1, r2, r3].into_iter().filter_map(|r| r.join().unwrap());
+        (0..3)
+            .filter_map(|i| Some(tx.send2(i, sync).err()?.0))
+            .chain(recv)
             .collect::<Vec<_>>()
     });
     values.sort_unstable();
@@ -206,12 +168,8 @@ fn concurrent_close<const UB: bool>(
 
 // A canceled SendFuture does not deliver its message.
 #[rstest]
-fn send_future_cancel<const UB: bool>(
-    #[values(FALSE, TRUE)] ub: Bool<UB>,
-    #[values(false, true)] take: bool,
-) {
-    let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(1).channel::<usize>();
+fn send_future_cancel(#[values(false, true)] take: bool) {
+    let (mut tx, rx) = <Array>::new(1).channel::<usize>();
     tx.try_send(0).unwrap();
     {
         let mut fut = pin!(tx.send(1));
@@ -225,28 +183,10 @@ fn send_future_cancel<const UB: bool>(
     assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
 }
 
-// Canceling a notified SendFuture passes the notification to the next waiter.
-#[rstest]
-fn send_future_cancel_wakes_next<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
-    let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(1).channel::<usize>();
-    tx.try_send(0).unwrap();
-    let mut cx = Context::from_waker(Waker::noop());
-    let mut send1 = pin!(tx.send(1));
-    assert_eq!(send1.as_mut().poll(&mut cx), Poll::Pending);
-    let mut send2 = pin!(tx.send(2));
-    assert_eq!(send2.as_mut().poll(&mut cx), Poll::Pending);
-    assert_eq!(rx.try_recv(), Ok(0)); // notifies send1
-    assert_eq!(send1.as_mut().cancel(), Some(1)); // cancels send1, should re-notify send2
-    assert_eq!(send2.as_mut().poll(&mut cx), Poll::Ready(Ok(())));
-    assert_eq!(rx.try_recv(), Ok(2));
-}
-
 // A canceled RecvFuture does not consume a message.
 #[rstest]
-fn recv_future_cancel<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
-    let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(1).channel::<usize>();
+fn recv_future_cancel() {
+    let (mut tx, rx) = <Array>::new(1).channel::<usize>();
     {
         let mut fut = pin!(rx.recv());
         let mut cx = Context::from_waker(Waker::noop());
@@ -258,9 +198,8 @@ fn recv_future_cancel<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
 
 // Canceling a notified RecvFuture passes the notification to the next waiter.
 #[rstest]
-fn recv_future_cancel_wakes_next<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
-    let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(1).channel::<usize>();
+fn recv_future_cancel_wakes_next() {
+    let (mut tx, rx) = <Array>::new(1).channel::<usize>();
     let rx2 = rx.clone();
     let mut cx = Context::from_waker(Waker::noop());
     let mut recv2 = pin!(rx2.recv());
@@ -277,7 +216,7 @@ fn recv_future_cancel_wakes_next<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool
 #[rstest]
 #[should_panic(expected = "future polled after completion")]
 fn send_future_poll_after_completion(#[values(false, true)] cancel: bool) {
-    let (tx, rx) = <Array>::new(1).channel::<usize>();
+    let (mut tx, rx) = <Array>::new(1).channel::<usize>();
     let mut cx = Context::from_waker(Waker::noop());
     let mut fut = pin!(tx.send(0));
     if cancel {
@@ -297,7 +236,7 @@ fn send_future_poll_after_completion(#[values(false, true)] cancel: bool) {
 #[case::wrapped(3, 2)]
 fn drop_buffered(#[case] offset: usize, #[case] msgs: usize) {
     let arc = Arc::new(());
-    let (tx, rx) = <Array>::new(4).channel();
+    let (mut tx, rx) = <Array>::new(4).channel();
     assert_eq!(tx.capacity(), 4);
     assert_eq!(rx.capacity(), 4);
     for _ in 0..offset {

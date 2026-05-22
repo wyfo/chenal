@@ -48,4 +48,5 @@ jobs:
       - name: miri
         run: cargo +nightly miri test --tests --all-features
         env:
+          RUSTFLAGS: --cfg=miri_racy
           MIRIFLAGS: -Zmiri-many-seeds=${{ matrix.seeds }} -Zmiri-compare-exchange-weak-failure-rate=0
