@@ -17,6 +17,7 @@ use futures::executor::block_on;
 
 const CAPACITIES: &[usize] = &[8, 64, 256, 1024, 16384];
 const PARALLELISM: &[usize] = &[1, 2, 4, 8];
+const MESSAGE_COUNT: usize = 1 << 16;
 
 pub(crate) struct Timer {
     threads: usize,
@@ -129,25 +130,23 @@ impl<R: AsyncReceiver<T>, T: Default + Debug + Unpin + 'static> Receiver<T> for 
 }
 
 fn send_recv<T: Default + Debug + Unpin + 'static, S: Sender<T>, R: Receiver<T>>(
-    channel: impl FnOnce(usize) -> (S, R),
-    msg_count: usize,
+    channel: impl Fn(usize) -> (S, R),
     sender_count: usize,
     receiver_count: usize,
     capacity: usize,
 ) -> Duration {
-    let total_msgs = msg_count * sender_count * receiver_count;
     let timer = Arc::new(Timer::new(sender_count + receiver_count));
     let (tx, rx) = channel(capacity);
     for _ in 0..sender_count - 1 {
         let tx = tx.clone();
-        timer.run(move || tx.run(total_msgs / sender_count));
+        timer.run(move || tx.run(MESSAGE_COUNT / sender_count));
     }
-    timer.run(move || tx.run(total_msgs / sender_count));
+    timer.run(move || tx.run(MESSAGE_COUNT / sender_count));
     for _ in 0..receiver_count - 1 {
         let rx = rx.clone();
-        timer.run(move || rx.run(total_msgs / receiver_count));
+        timer.run(move || rx.run(MESSAGE_COUNT / receiver_count));
     }
-    timer.run(move || rx.run(total_msgs / receiver_count));
+    timer.run(move || rx.run(MESSAGE_COUNT / receiver_count));
     timer.wait()
 }
 
@@ -176,14 +175,16 @@ fn bench_channel<T: Default + Debug + Unpin + 'static, S: Sender<T>, R: Receiver
                     continue;
                 }
                 let _ = std::panic::take_hook();
-                c.bench_function(
-                    &format!("{name}/{kind}/{run}/msg_size={msg_size}/senders={sender_count}/receivers={receiver_count}/capacity={capacity}"),
-                    |b| {
-                        b.iter_custom(|iters| {
-                            send_recv(&channel, iters as _, sender_count, 1, capacity)
-                        })
-                    },
+                let bench = format!(
+                    "{name}/{kind}/{run}/msg_size={msg_size}/senders={sender_count}/receivers={receiver_count}/capacity={capacity}"
                 );
+                c.bench_function(&bench, |b| {
+                    b.iter_custom(|iters| {
+                        (0..iters)
+                            .map(|_| send_recv(&channel, sender_count, 1, capacity))
+                            .sum()
+                    })
+                });
             }
         }
     }
