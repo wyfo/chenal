@@ -32,7 +32,10 @@ jobs:
       seeds: ${{ steps.compute-seeds.outputs.seeds }}
     steps:
       - id: compute-seeds
-        run: python3 -c "print('seeds=' + str([f'{i}..{i+32}' for i in range(0,2048,32)]))" >> $GITHUB_OUTPUT
+        run: python3 -c "print('seeds=' + str([f'{i}..{i+$TOTAL//$RUNNERS}' for i in range(0,$TOTAL,$TOTAL//$RUNNERS)]))" >> $GITHUB_OUTPUT
+        env:
+          TOTAL: 2048
+          RUNNERS: 16
 
   miri:
     needs: [test, compute-miri-seeds]
