@@ -1,6 +1,6 @@
 use chenal::Channel;
 
-use crate::{AsyncReceiver, AsyncSender, BlockingReceiver, BlockingSender};
+use crate::{AsyncReceiver, AsyncSender, BlockingReceiver, BlockingSender, Receiver, Sender};
 
 pub struct Tx<T, Ch: Channel>(chenal::Tx<T, Ch>);
 pub struct MTx<T, Ch: Channel>(chenal::MTx<T, Ch>);
@@ -33,6 +33,19 @@ pub mod mpsc {
     }
 }
 
+pub mod spmc {
+    pub use channel as async_channel;
+    pub use channel as blocking_channel;
+    use chenal::spmc::Array;
+
+    use super::{MRx, Tx};
+
+    pub fn channel<T>(capacity: usize) -> (Tx<T, Array>, MRx<T, Array>) {
+        let (tx, rx) = chenal::spmc::channel(capacity);
+        (Tx(tx), MRx(rx))
+    }
+}
+
 pub mod spsc {
     pub use channel as async_channel;
     pub use channel as blocking_channel;
@@ -43,6 +56,16 @@ pub mod spsc {
     pub fn channel<T>(capacity: usize) -> (Tx<T, Array>, Rx<T, Array>) {
         let (tx, rx) = chenal::spsc::channel(capacity);
         (Tx(tx), Rx(rx))
+    }
+}
+
+impl<T: Send + 'static, Ch: Channel> Sender<T> for Tx<T, Ch> {
+    const CLONEABLE: bool = false;
+    fn try_send(&mut self, msg: T) {
+        self.0.try_send(msg).unwrap();
+    }
+    fn clone(&self) -> Self {
+        unimplemented!()
     }
 }
 
@@ -59,9 +82,6 @@ impl<T: Send + 'static, Ch: Channel> BlockingSender<T> for Tx<T, Ch> {
         }
         self.0.send_blocking(msg).unwrap();
     }
-    fn clone(&self) -> Self {
-        unimplemented!()
-    }
 }
 
 impl<T: Send + 'static, Ch: Channel> AsyncSender<T> for Tx<T, Ch> {
@@ -77,8 +97,15 @@ impl<T: Send + 'static, Ch: Channel> AsyncSender<T> for Tx<T, Ch> {
         }
         self.0.send(msg).await.unwrap();
     }
+}
+
+impl<T: Send + 'static, Ch: Channel> Sender<T> for MTx<T, Ch> {
+    const CLONEABLE: bool = true;
+    fn try_send(&mut self, msg: T) {
+        self.0.try_send(msg).unwrap();
+    }
     fn clone(&self) -> Self {
-        unimplemented!()
+        Self(Clone::clone(&self.0))
     }
 }
 
@@ -95,9 +122,6 @@ impl<T: Send + 'static, Ch: Channel> BlockingSender<T> for MTx<T, Ch> {
         }
         self.0.send_blocking(msg).unwrap();
     }
-    fn clone(&self) -> Self {
-        Self(Clone::clone(&self.0))
-    }
 }
 
 impl<T: Send + 'static, Ch: Channel> AsyncSender<T> for MTx<T, Ch> {
@@ -113,8 +137,15 @@ impl<T: Send + 'static, Ch: Channel> AsyncSender<T> for MTx<T, Ch> {
         }
         self.0.send(msg).await.unwrap();
     }
+}
+
+impl<T: Send + 'static, Ch: Channel> Receiver<T> for Rx<T, Ch> {
+    const CLONEABLE: bool = false;
+    fn try_recv(&mut self) -> T {
+        self.0.try_recv().unwrap()
+    }
     fn clone(&self) -> Self {
-        Self(Clone::clone(&self.0))
+        unimplemented!()
     }
 }
 
@@ -131,9 +162,6 @@ impl<T: Send + 'static, Ch: Channel> BlockingReceiver<T> for Rx<T, Ch> {
         }
         self.0.recv_blocking().unwrap()
     }
-    fn clone(&self) -> Self {
-        unimplemented!()
-    }
 }
 
 impl<T: Send + 'static, Ch: Channel> AsyncReceiver<T> for Rx<T, Ch> {
@@ -149,8 +177,15 @@ impl<T: Send + 'static, Ch: Channel> AsyncReceiver<T> for Rx<T, Ch> {
         }
         self.0.recv().await.unwrap()
     }
+}
+
+impl<T: Send + 'static, Ch: Channel> Receiver<T> for MRx<T, Ch> {
+    const CLONEABLE: bool = true;
+    fn try_recv(&mut self) -> T {
+        self.0.try_recv().unwrap()
+    }
     fn clone(&self) -> Self {
-        unimplemented!()
+        Self(Clone::clone(&self.0))
     }
 }
 
@@ -167,9 +202,6 @@ impl<T: Send + 'static, Ch: Channel> BlockingReceiver<T> for MRx<T, Ch> {
         }
         self.0.recv_blocking().unwrap()
     }
-    fn clone(&self) -> Self {
-        Self(Clone::clone(&self.0))
-    }
 }
 
 impl<T: Send + 'static, Ch: Channel> AsyncReceiver<T> for MRx<T, Ch> {
@@ -184,8 +216,5 @@ impl<T: Send + 'static, Ch: Channel> AsyncReceiver<T> for MRx<T, Ch> {
             backoff.snooze();
         }
         self.0.recv().await.unwrap()
-    }
-    fn clone(&self) -> Self {
-        Self(Clone::clone(&self.0))
     }
 }

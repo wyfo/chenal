@@ -1,17 +1,20 @@
 use std::{
     cell::Cell,
+    collections::HashSet,
     fmt::Debug,
     hint::black_box,
-    panic::{catch_unwind, AssertUnwindSafe},
+    marker::PhantomData,
     sync::{
-        atomic::{AtomicUsize, Ordering::Relaxed}, Arc,
+        atomic::{AtomicUsize, Ordering::Relaxed}, Arc, LazyLock, Mutex,
         Once,
     },
     thread,
     time::{Duration, Instant},
 };
 
-use chenal_bench::{AsyncReceiver, AsyncSender, BlockingReceiver, BlockingSender};
+use chenal_bench::{
+    AsyncReceiver, AsyncSender, BlockingReceiver, BlockingSender, Receiver, Sender,
+};
 use criterion::{criterion_group, criterion_main, Criterion};
 use futures::executor::block_on;
 
@@ -66,70 +69,60 @@ impl Timer {
     }
 }
 
-#[derive(Clone)]
-struct Blocking<T>(T);
-#[derive(Clone)]
-struct Async<T>(T);
-
-trait Sender<T>: Send + 'static {
-    fn run(self, count: usize);
-    fn clone(&self) -> Self;
+trait Runner<S, R> {
+    fn run_send(sender: S, msg_count: usize);
+    fn run_recv(receiver: R, msg_count: usize);
 }
 
-impl<S: BlockingSender<T>, T: Default + Debug + Unpin + 'static> Sender<T> for Blocking<S> {
-    fn run(mut self, count: usize) {
-        for _ in 0..count {
-            self.0.send(black_box(T::default()));
+struct Blocking<T>(PhantomData<T>);
+struct Async<T>(PhantomData<T>);
+
+impl<T: Default, S: BlockingSender<T>, R: BlockingReceiver<T>> Runner<S, R> for Blocking<T> {
+    fn run_send(mut sender: S, msg_count: usize) {
+        let atomic = AtomicUsize::new(0);
+        for _ in 0..msg_count {
+            sender.send(black_box(T::default()));
+            atomic.fetch_add(1, Relaxed);
         }
     }
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
 
-impl<S: AsyncSender<T>, T: Default + Debug + Unpin + 'static> Sender<T> for Async<S> {
-    fn run(mut self, count: usize) {
-        block_on(async move {
-            for _ in 0..count {
-                self.0.send(black_box(T::default())).await;
-            }
-        });
-    }
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
-
-pub trait Receiver<T>: Send + 'static {
-    fn run(self, count: usize);
-    fn clone(&self) -> Self;
-}
-
-impl<R: BlockingReceiver<T>, T: Default + Debug + Unpin + 'static> Receiver<T> for Blocking<R> {
-    fn run(mut self, count: usize) {
-        for _ in 0..count {
-            black_box(self.0.recv());
+    fn run_recv(mut receiver: R, msg_count: usize) {
+        let atomic = AtomicUsize::new(0);
+        for _ in 0..msg_count {
+            black_box(receiver.recv());
+            atomic.fetch_add(1, Relaxed);
         }
     }
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
 }
 
-impl<R: AsyncReceiver<T>, T: Default + Debug + Unpin + 'static> Receiver<T> for Async<R> {
-    fn run(mut self, count: usize) {
+impl<T: Default, S: AsyncSender<T>, R: AsyncReceiver<T>> Runner<S, R> for Async<T> {
+    fn run_send(mut sender: S, msg_count: usize) {
+        let atomic = AtomicUsize::new(0);
         block_on(async move {
-            for _ in 0..count {
-                black_box(self.0.recv().await);
+            for _ in 0..msg_count {
+                sender.send(black_box(T::default())).await;
+                atomic.fetch_add(1, Relaxed);
             }
-        });
+        })
     }
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
+
+    fn run_recv(mut receiver: R, msg_count: usize) {
+        let atomic = AtomicUsize::new(0);
+        block_on(async move {
+            for _ in 0..msg_count {
+                black_box(receiver.recv().await);
+                atomic.fetch_add(1, Relaxed);
+            }
+        })
     }
 }
 
-fn send_recv<T: Default + Debug + Unpin + 'static, S: Sender<T>, R: Receiver<T>>(
+fn parallel<
+    Run: Runner<S, R>,
+    T: Default + Debug + Unpin + 'static,
+    S: Sender<T>,
+    R: Receiver<T>,
+>(
     channel: impl Fn(usize) -> (S, R),
     sender_count: usize,
     receiver_count: usize,
@@ -139,18 +132,48 @@ fn send_recv<T: Default + Debug + Unpin + 'static, S: Sender<T>, R: Receiver<T>>
     let (tx, rx) = channel(capacity);
     for _ in 0..sender_count - 1 {
         let tx = tx.clone();
-        timer.run(move || tx.run(MESSAGE_COUNT / sender_count));
+        timer.run(move || Run::run_send(tx, MESSAGE_COUNT / sender_count));
     }
-    timer.run(move || tx.run(MESSAGE_COUNT / sender_count));
+    timer.run(move || Run::run_send(tx, MESSAGE_COUNT / sender_count));
     for _ in 0..receiver_count - 1 {
         let rx = rx.clone();
-        timer.run(move || rx.run(MESSAGE_COUNT / receiver_count));
+        timer.run(move || Run::run_recv(rx, MESSAGE_COUNT / receiver_count));
     }
-    timer.run(move || rx.run(MESSAGE_COUNT / receiver_count));
+    timer.run(move || Run::run_recv(rx, MESSAGE_COUNT / receiver_count));
     timer.wait()
 }
 
-fn bench_channel<T: Default + Debug + Unpin + 'static, S: Sender<T>, R: Receiver<T>>(
+fn seq<T: Default + Debug + Unpin + 'static, S: Sender<T>, R: Receiver<T>>(
+    channel: impl Fn(usize) -> (S, R),
+    send: bool,
+    recv: bool,
+) -> Duration {
+    let (mut tx, mut rx) = channel(MESSAGE_COUNT);
+    let mut start = Instant::now();
+    let atomic = AtomicUsize::new(0);
+    for _ in 0..MESSAGE_COUNT {
+        tx.try_send(black_box(T::default()));
+        atomic.fetch_add(1, Relaxed);
+    }
+    if !recv {
+        assert!(send);
+        return start.elapsed();
+    } else if !send {
+        start = Instant::now();
+    }
+    for _ in 0..MESSAGE_COUNT {
+        black_box(rx.try_recv());
+        atomic.fetch_add(1, Relaxed);
+    }
+    start.elapsed()
+}
+
+fn bench_channel<
+    Run: Runner<S, R>,
+    T: Default + Debug + Unpin + 'static,
+    S: Sender<T>,
+    R: Receiver<T>,
+>(
     c: &mut Criterion,
     name: &str,
     kind: &str,
@@ -158,30 +181,30 @@ fn bench_channel<T: Default + Debug + Unpin + 'static, S: Sender<T>, R: Receiver
     channel: impl Fn(usize) -> (S, R),
 ) {
     let msg_size = size_of::<T>() / 8;
-    for &sender_count in PARALLELISM {
-        for &receiver_count in PARALLELISM {
+    for (op, send, recv) in [
+        ("seq", true, true),
+        ("send", true, false),
+        ("recv", false, true),
+    ] {
+        static SEQ: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
+        let seq_bench = format!("{name}/{kind}/{op}/msg_size={msg_size}");
+        if SEQ.lock().unwrap().insert(seq_bench.clone()) {
+            c.bench_function(&seq_bench, |b| {
+                b.iter_custom(|iters| (0..iters).map(|_| seq(&channel, send, recv)).sum())
+            });
+        }
+    }
+    let parallelism = |cloneable| if cloneable { PARALLELISM } else { &[1] };
+    for &sender_count in parallelism(S::CLONEABLE) {
+        for &receiver_count in parallelism(R::CLONEABLE) {
             for &capacity in CAPACITIES {
-                let check_channel = || {
-                    let (tx, rx) = channel(capacity);
-                    if sender_count > 1 {
-                        tx.clone();
-                    }
-                    if receiver_count > 1 {
-                        rx.clone();
-                    }
-                };
-                std::panic::set_hook(Box::new(|_| ()));
-                if catch_unwind(AssertUnwindSafe(check_channel)).is_err() {
-                    continue;
-                }
-                let _ = std::panic::take_hook();
                 let bench = format!(
                     "{name}/{kind}/{run}/msg_size={msg_size}/senders={sender_count}/receivers={receiver_count}/capacity={capacity}"
                 );
                 c.bench_function(&bench, |b| {
                     b.iter_custom(|iters| {
                         (0..iters)
-                            .map(|_| send_recv(&channel, sender_count, 1, capacity))
+                            .map(|_| parallel::<Run, T, S, R>(&channel, sender_count, 1, capacity))
                             .sum()
                     })
                 });
@@ -210,17 +233,16 @@ macro_rules! bench_channel {
     (@ $c:ident, $name:ident, $kind:ident, $run:ident, $channel:ident, $wrapper:ident) => {
         bench_channel!(@[0, 1, 2, 4, 8, 16] $c, $name, $kind, $run, $channel, $wrapper);
     };
-    (@[$($n:literal),+] $c:ident, $name:ident, $kind:ident, $run:ident, $channel:ident, $wrapper:ident) => {$(
-        bench_channel::<[usize; $n], _, _>($c, stringify!($name), stringify!($kind), stringify!($run), |capa| {
-            let (tx, rx) = chenal_bench::$name::$kind::$channel(capa);
-            ($wrapper(tx), $wrapper(rx))
-        });
+    (@[$($n:literal),+] $c:ident, $name:ident, $kind:ident, $run:ident, $channel:ident, $runner:ident) => {$(
+        bench_channel::<$runner<_>, [usize; $n], _, _>($c, stringify!($name), stringify!($kind), stringify!($run), chenal_bench::$name::$kind::$channel);
     )+};
 }
 
 fn bench(c: &mut Criterion) {
-    bench_channel!(c, chenal, mpmc, mpsc, spsc);
-    bench_channel!(c, chenal_loop, mpmc, mpsc, spsc);
+    bench_channel!(c, async_channel, mpmc(async));
+    bench_channel!(c, chenal, mpmc, mpsc, spmc, spsc);
+    bench_channel!(c, chenal_32, mpsc, spsc);
+    bench_channel!(c, chenal_loop, mpmc, mpsc, spmc, spsc);
     bench_channel!(c, chenal_32, mpsc, spsc);
     bench_channel!(c, crossfire, mpmc, mpsc, spsc);
     bench_channel!(c, crossbeam, mpmc(blocking));

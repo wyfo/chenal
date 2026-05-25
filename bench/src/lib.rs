@@ -44,23 +44,31 @@ pub mod std;
 pub mod tachyonix;
 pub mod tokio;
 
-pub trait BlockingSender<T>: Send + 'static {
-    fn send(&mut self, msg: T);
+pub trait Sender<T>: Send + 'static {
+    const CLONEABLE: bool;
+    fn try_send(&mut self, msg: T);
     fn clone(&self) -> Self;
 }
 
-pub trait AsyncSender<T>: Send + 'static {
+pub trait BlockingSender<T>: Sender<T> {
+    fn send(&mut self, msg: T);
+}
+
+pub trait AsyncSender<T>: Sender<T> {
     // `&mut self` because of `Sink` channels
     fn send(&mut self, msg: T) -> impl Future<Output = ()> + Send + '_;
+}
+
+pub trait Receiver<T>: Send + 'static {
+    const CLONEABLE: bool;
+    fn try_recv(&mut self) -> T;
     fn clone(&self) -> Self;
 }
 
-pub trait BlockingReceiver<T>: Send + 'static {
+pub trait BlockingReceiver<T>: Receiver<T> {
     fn recv(&mut self) -> T;
-    fn clone(&self) -> Self;
 }
 
-pub trait AsyncReceiver<T>: Send + 'static {
+pub trait AsyncReceiver<T>: Receiver<T> {
     fn recv(&mut self) -> impl Future<Output = T> + Send + '_;
-    fn clone(&self) -> Self;
 }
