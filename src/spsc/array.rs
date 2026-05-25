@@ -102,7 +102,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity> internal::Channel for Array<BLOCK_SIZ
     type TxAtomicState<T> = AtomicUsize;
     type TxState<T> = usize;
     type TxSlot<T> = usize;
-    type TxWaiter = SpmcWaker<false>;
+    type TxWaiter = SpmcWaker;
     type TxRefCount = AtomicUsize;
 
     fn tx_init_state<T>(storage: &Self::Storage<T>) -> Self::TxAtomicState<T> {
@@ -182,7 +182,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity> internal::Channel for Array<BLOCK_SIZ
     type RxAtomicState<T> = AtomicUsize;
     type RxState<T> = usize;
     type RxSlot<T> = usize;
-    type RxWaiter = SpmcWaker<false>;
+    type RxWaiter = SpmcWaker;
     type RxRefCount = ();
     const WAKE_TX_AFTER_READ: bool = false;
 

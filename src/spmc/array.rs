@@ -106,7 +106,7 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
     type TxAtomicState<T> = AtomicUsize;
     type TxState<T> = usize;
     type TxSlot<T> = usize;
-    type TxWaiter = SpmcWaker<false>;
+    type TxWaiter = SpmcWaker;
     type TxRefCount = ();
 
     fn tx_init_state<T>(storage: &Self::Storage<T>) -> Self::TxAtomicState<T> {

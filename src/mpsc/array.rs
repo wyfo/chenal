@@ -204,7 +204,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
     type RxAtomicState<T> = AtomicUsize;
     type RxState<T> = (NonNull<Slot<T>>, usize);
     type RxSlot<T> = (NonNull<Slot<T>>, usize);
-    type RxWaiter = SpmcWaker<false>;
+    type RxWaiter = SpmcWaker;
     type RxRefCount = ();
     const WAKE_TX_AFTER_READ: bool = false;
 

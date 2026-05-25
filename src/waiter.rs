@@ -20,7 +20,7 @@ pub(crate) trait Waiter: Default + 'static {
     fn close(&self);
 }
 
-impl Waiter for SpmcWaker<false> {
+impl Waiter for SpmcWaker {
     type Wait<'a> = ();
     unsafe fn register<'a>(&'a self, _wait: Pin<&mut Self::Wait<'a>>, waker: &Waker) -> bool {
         unsafe { self.register(waker) }
