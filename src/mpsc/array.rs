@@ -151,7 +151,8 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
         state: &mut Self::TxState<T>,
         first_call: bool,
     ) -> Result<Self::TxSlot<T>, TryAcquireError> {
-        let mut backoff = (!first_call).then(Backoff::new);
+        let backoff = Backoff::new();
+        let mut spin = first_call;
         loop {
             let tail_idx = *state & chan.slot_mask();
             let mut next_state = match tail_idx.cmp(&(chan.capacity() - 1)) {
@@ -175,10 +176,8 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
                 }
                 next_state = (next_state & LB) | (max_tail << HB_SHIFT);
             }
-            if let Some(backoff) = backoff.as_ref() {
+            if spin {
                 backoff.spin();
-            } else {
-                backoff = Some(Backoff::new());
             }
             match (chan.tx_state).compare_exchange_weak(*state, next_state, SeqCst, SeqCst) {
                 Ok(_) => {
@@ -187,6 +186,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
                 }
                 Err(s) => *state = s,
             }
+            spin = true;
         }
     }
 

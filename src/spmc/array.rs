@@ -220,7 +220,8 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
         state: &mut Self::RxState<T>,
         first_call: bool,
     ) -> Result<Self::RxSlot<T>, TryAcquireError> {
-        let mut backoff = (!first_call).then(Backoff::new);
+        let backoff = Backoff::new();
+        let mut spin = first_call;
         loop {
             let head = *state & LB;
             let tail = *state >> HB_SHIFT;
@@ -251,15 +252,14 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
             }
             let slot = unsafe { chan.get_unchecked(head_idx) };
             let msg = unsafe { slot.read_racy() };
-            if let Some(backoff) = backoff.as_ref() {
+            if spin {
                 backoff.spin();
-            } else {
-                backoff = Some(Backoff::new());
             }
             match (chan.rx_state).compare_exchange_weak(*state, new_state, SeqCst, SeqCst) {
                 Ok(_) => return Ok(unsafe { msg.assume_init() }),
                 Err(s) => *state = s,
             }
+            spin = true;
         }
     }
 

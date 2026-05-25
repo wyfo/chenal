@@ -145,7 +145,8 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
         state: &mut Self::TxState<T>,
         first_call: bool,
     ) -> Result<Self::TxSlot<T>, TryAcquireError> {
-        let mut backoff = (!first_call).then(Backoff::new);
+        let backoff = Backoff::new();
+        let mut spin = first_call;
         loop {
             let tail_idx = *state & chan.slot_mask();
             let mut next_state = match tail_idx.cmp(&(chan.capacity() - 1)) {
@@ -169,10 +170,8 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
                 }
                 next_state = (next_state & LB) | (max_tail << HB_SHIFT);
             }
-            if let Some(backoff) = backoff.as_ref() {
+            if spin {
                 backoff.spin();
-            } else {
-                backoff = Some(Backoff::new());
             }
             match (chan.tx_state).compare_exchange_weak(*state, next_state, SeqCst, SeqCst) {
                 Ok(_) => {
@@ -181,6 +180,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
                 }
                 Err(s) => *state = s,
             }
+            spin = true;
         }
     }
 
@@ -231,7 +231,8 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
         head: &mut Self::RxState<T>,
         first_call: bool,
     ) -> Result<Self::RxSlot<T>, TryAcquireError> {
-        let mut backoff = (!first_call).then(Backoff::new);
+        let backoff = Backoff::new();
+        let mut spin = first_call;
         loop {
             let head_idx = *head & chan.slot_mask();
             let slot = unsafe { chan.get_unchecked(head_idx) };
@@ -269,15 +270,14 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
             }
             let msg = unsafe { slot.msg.read_racy() };
             let new_head = chan.wrap_around(head_idx, *head, false);
-            if let Some(backoff) = backoff.as_ref() {
+            if spin {
                 backoff.spin();
-            } else {
-                backoff = Some(Backoff::new());
             }
             match (chan.rx_state).compare_exchange_weak(*head, new_head, SeqCst, SeqCst) {
                 Ok(_) => return Ok(unsafe { msg.assume_init() }),
                 Err(h) => *head = h,
             }
+            spin = true;
         }
     }
 
