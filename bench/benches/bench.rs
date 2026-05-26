@@ -251,6 +251,7 @@ fn bench(c: &mut Criterion) {
     bench_channel!(c, postage, mpsc);
     bench_channel!(c, std, mpsc(blocking));
     bench_channel!(c, tokio, mpsc);
+    bench_channel!(c, tachyonix, mpsc(async));
 }
 
 criterion_group!(benches, bench);
