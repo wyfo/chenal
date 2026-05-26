@@ -11,11 +11,11 @@ use core::{
 };
 
 use aiq::WaitQueue;
-use crossbeam_utils::Backoff;
 
 use crate::{
     Channel, DEFAULT_UNBOUNDED_BACKOFF, MRx, MTx,
     array::{HB_SHIFT, LB, Slots},
+    backoff::{Backoff, BackoffStrategy},
     capacity::Capacity,
     channel::{BoundedChannel, Chan},
     errors::{SendError, TryAcquireError},
@@ -140,13 +140,12 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
         Ok((slot, tail))
     }
 
-    fn tx_acquire_slot_cold<T>(
+    fn tx_acquire_slot_cold<T, B: BackoffStrategy>(
         chan: &Chan<T, Self>,
         state: &mut Self::TxState<T>,
-        first_call: bool,
+        backoff: bool,
     ) -> Result<Self::TxSlot<T>, TryAcquireError> {
-        let backoff = Backoff::new();
-        let mut spin = first_call;
+        let mut backoff = Backoff::<B>::new(backoff);
         loop {
             let tail_idx = *state & chan.slot_mask();
             let mut next_state = match tail_idx.cmp(&(chan.capacity() - 1)) {
@@ -170,8 +169,8 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
                 }
                 next_state = (next_state & LB) | (max_tail << HB_SHIFT);
             }
-            if spin {
-                backoff.spin();
+            if backoff.backoff(state, || chan.rx_state.load(Relaxed)) {
+                continue;
             }
             match (chan.tx_state).compare_exchange_weak(*state, next_state, SeqCst, SeqCst) {
                 Ok(_) => {
@@ -180,7 +179,6 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
                 }
                 Err(s) => *state = s,
             }
-            spin = true;
         }
     }
 
@@ -226,13 +224,12 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
             .map(|_| unsafe { msg.assume_init() })
     }
 
-    fn rx_acquire_slot_cold<T>(
+    fn rx_acquire_slot_cold<T, B: BackoffStrategy>(
         chan: &Chan<T, Self>,
         head: &mut Self::RxState<T>,
-        first_call: bool,
+        backoff: bool,
     ) -> Result<Self::RxSlot<T>, TryAcquireError> {
-        let backoff = Backoff::new();
-        let mut spin = first_call;
+        let mut backoff = Backoff::<B>::new(backoff);
         loop {
             let head_idx = *head & chan.slot_mask();
             let slot = unsafe { chan.get_unchecked(head_idx) };
@@ -253,7 +250,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
                             TryAcquireError::Closed
                         });
                     }
-                    let backoff = Backoff::new();
+                    let backoff = crossbeam_utils::Backoff::new();
                     while slot.stamp.load(Acquire) != *head {
                         backoff.snooze();
                     }
@@ -270,14 +267,13 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
             }
             let msg = unsafe { slot.msg.read_racy() };
             let new_head = chan.wrap_around(head_idx, *head, false);
-            if spin {
-                backoff.spin();
+            if backoff.backoff(head, || chan.rx_state.load(Relaxed)) {
+                continue;
             }
             match (chan.rx_state).compare_exchange_weak(*head, new_head, SeqCst, SeqCst) {
                 Ok(_) => return Ok(unsafe { msg.assume_init() }),
                 Err(h) => *head = h,
             }
-            spin = true;
         }
     }
 

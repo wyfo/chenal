@@ -1,6 +1,7 @@
 use alloc::sync::Arc;
 
 use crate::{
+    backoff::BackoffStrategy,
     capacity::ConstCapacity,
     channel::Chan,
     errors::{SendError, TryAcquireError},
@@ -61,10 +62,10 @@ pub(crate) trait Channel: Sized + 'static {
     fn tx_init_state<T>(storage: &Self::Storage<T>) -> Self::TxAtomicState<T>;
     fn is_full<T>(chan: &Chan<T, Self>) -> bool;
     fn tx_acquire_slot<T>(chan: &Chan<T, Self>) -> Result<Self::TxSlot<T>, Self::TxState<T>>;
-    fn tx_acquire_slot_cold<T>(
+    fn tx_acquire_slot_cold<T, B: BackoffStrategy>(
         chan: &Chan<T, Self>,
         state: &mut Self::TxState<T>,
-        first_call: bool,
+        backoff: bool,
     ) -> Result<Self::TxSlot<T>, TryAcquireError>;
     fn write_slot<T>(
         chan: &Chan<T, Self>,
@@ -80,10 +81,10 @@ pub(crate) trait Channel: Sized + 'static {
     fn rx_init_state<T>(storage: &Self::Storage<T>) -> Self::RxAtomicState<T>;
     fn is_empty<T>(chan: &Chan<T, Self>) -> bool;
     fn rx_acquire_slot<T>(chan: &Chan<T, Self>) -> Result<Self::RxSlot<T>, Self::RxState<T>>;
-    fn rx_acquire_slot_cold<T>(
+    fn rx_acquire_slot_cold<T, B: BackoffStrategy>(
         chan: &Chan<T, Self>,
         state: &mut Self::RxState<T>,
-        first_call: bool,
+        backoff: bool,
     ) -> Result<Self::RxSlot<T>, TryAcquireError>;
     fn read_slot<T>(chan: &Chan<T, Self>, slot: Self::RxSlot<T>) -> T;
 }

@@ -10,12 +10,12 @@ use core::{
 };
 
 use aiq::WaitQueue;
-use crossbeam_utils::Backoff;
 use spmc_waker::SpmcWaker;
 
 use crate::{
     Channel, MRx, Tx,
     array::{HB_SHIFT, LB, Slots},
+    backoff::{Backoff, BackoffStrategy},
     capacity::Capacity,
     channel::{BoundedChannel, Chan},
     errors::{SendError, TryAcquireError},
@@ -132,10 +132,10 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
         Ok(state)
     }
 
-    fn tx_acquire_slot_cold<T>(
+    fn tx_acquire_slot_cold<T, B: BackoffStrategy>(
         chan: &Chan<T, Self>,
         state: &mut Self::TxState<T>,
-        _first_call: bool,
+        _backoff: bool,
     ) -> Result<Self::TxSlot<T>, TryAcquireError> {
         if chan.closed.load(SeqCst) != 0 {
             return Err(TryAcquireError::Closed);
@@ -215,13 +215,12 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
             .map(|_| unsafe { msg.assume_init() })
     }
 
-    fn rx_acquire_slot_cold<T>(
+    fn rx_acquire_slot_cold<T, B: BackoffStrategy>(
         chan: &Chan<T, Self>,
         state: &mut Self::RxState<T>,
-        first_call: bool,
+        backoff: bool,
     ) -> Result<Self::RxSlot<T>, TryAcquireError> {
-        let backoff = Backoff::new();
-        let mut spin = first_call;
+        let mut backoff = Backoff::<B>::new(backoff);
         loop {
             let head = *state & LB;
             let tail = *state >> HB_SHIFT;
@@ -252,14 +251,13 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
             }
             let slot = unsafe { chan.get_unchecked(head_idx) };
             let msg = unsafe { slot.read_racy() };
-            if spin {
-                backoff.spin();
+            if backoff.backoff(state, || chan.rx_state.load(Relaxed)) {
+                continue;
             }
             match (chan.rx_state).compare_exchange_weak(*state, new_state, SeqCst, SeqCst) {
                 Ok(_) => return Ok(unsafe { msg.assume_init() }),
                 Err(s) => *state = s,
             }
-            spin = true;
         }
     }
 

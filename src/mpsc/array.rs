@@ -10,12 +10,12 @@ use core::{
 };
 
 use aiq::WaitQueue;
-use crossbeam_utils::Backoff;
 use spmc_waker::SpmcWaker;
 
 use crate::{
     Channel, DEFAULT_UNBOUNDED_BACKOFF, MTx, Rx,
     array::{HB_SHIFT, LB, Slots},
+    backoff::{Backoff, BackoffStrategy},
     capacity::Capacity,
     channel::{BoundedChannel, Chan},
     errors::{SendError, TryAcquireError},
@@ -146,13 +146,12 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
         Ok((slot, tail))
     }
 
-    fn tx_acquire_slot_cold<T>(
+    fn tx_acquire_slot_cold<T, B: BackoffStrategy>(
         chan: &Chan<T, Self>,
         state: &mut Self::TxState<T>,
-        first_call: bool,
+        backoff: bool,
     ) -> Result<Self::TxSlot<T>, TryAcquireError> {
-        let backoff = Backoff::new();
-        let mut spin = first_call;
+        let mut backoff = Backoff::<B>::new(backoff);
         loop {
             let tail_idx = *state & chan.slot_mask();
             let mut next_state = match tail_idx.cmp(&(chan.capacity() - 1)) {
@@ -176,8 +175,8 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
                 }
                 next_state = (next_state & LB) | (max_tail << HB_SHIFT);
             }
-            if spin {
-                backoff.spin();
+            if backoff.backoff(state, || chan.tx_state.load(Relaxed)) {
+                continue;
             }
             match (chan.tx_state).compare_exchange_weak(*state, next_state, SeqCst, SeqCst) {
                 Ok(_) => {
@@ -186,7 +185,6 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
                 }
                 Err(s) => *state = s,
             }
-            spin = true;
         }
     }
 
@@ -229,12 +227,12 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
         Ok((slot.into(), head))
     }
 
-    fn rx_acquire_slot_cold<T>(
+    fn rx_acquire_slot_cold<T, B: BackoffStrategy>(
         chan: &Chan<T, Self>,
         &mut (slot, head): &mut Self::RxState<T>,
-        first_call: bool,
+        backoff: bool,
     ) -> Result<Self::RxSlot<T>, TryAcquireError> {
-        if !first_call {
+        if !backoff {
             let ordering = if UNBOUNDED_BACKOFF { Acquire } else { SeqCst };
             if unsafe { slot.as_ref() }.stamp.load(ordering) == head {
                 return Ok((slot, head));
@@ -250,7 +248,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
                     TryAcquireError::Closed
                 });
             }
-            let backoff = Backoff::new();
+            let backoff = crossbeam_utils::Backoff::new();
             while unsafe { slot.as_ref() }.stamp.load(Acquire) != head {
                 backoff.snooze();
             }

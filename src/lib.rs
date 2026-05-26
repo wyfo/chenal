@@ -7,6 +7,7 @@
 extern crate alloc;
 
 mod array;
+pub mod backoff;
 #[cfg(feature = "blocking")]
 mod blocking;
 pub mod capacity;

@@ -12,6 +12,7 @@ use spmc_waker::SpmcWaker;
 use crate::{
     Channel, Rx, Tx,
     array::{HB_SHIFT, LB, Slots},
+    backoff::BackoffStrategy,
     capacity::Capacity,
     channel::{BoundedChannel, Chan},
     errors::{SendError, TryAcquireError},
@@ -128,10 +129,10 @@ impl<const BLOCK_SIZE: usize, C: Capacity> internal::Channel for Array<BLOCK_SIZ
         Ok(state)
     }
 
-    fn tx_acquire_slot_cold<T>(
+    fn tx_acquire_slot_cold<T, B: BackoffStrategy>(
         chan: &Chan<T, Self>,
         state: &mut Self::TxState<T>,
-        _first_call: bool,
+        _backoff: bool,
     ) -> Result<Self::TxSlot<T>, TryAcquireError> {
         if chan.closed.load(SeqCst) != 0 {
             return Err(TryAcquireError::Closed);
@@ -206,10 +207,10 @@ impl<const BLOCK_SIZE: usize, C: Capacity> internal::Channel for Array<BLOCK_SIZ
         Ok(state)
     }
 
-    fn rx_acquire_slot_cold<T>(
+    fn rx_acquire_slot_cold<T, B: BackoffStrategy>(
         chan: &Chan<T, Self>,
         state: &mut Self::RxState<T>,
-        _first_call: bool,
+        _backoff: bool,
     ) -> Result<Self::RxSlot<T>, TryAcquireError> {
         let head = *state & LB;
         let closed = chan.closed.load(SeqCst);

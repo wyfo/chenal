@@ -1,5 +1,7 @@
 use core::{
-    fmt, mem,
+    fmt,
+    marker::PhantomData,
+    mem,
     mem::ManuallyDrop,
     ops::{Deref, DerefMut},
     panic::{RefUnwindSafe, UnwindSafe},
@@ -18,6 +20,7 @@ use crossbeam_utils::CachePadded;
 #[cfg(feature = "blocking")]
 use crate::blocking::*;
 use crate::{
+    backoff::{BackoffStrategy, NoBackoff},
     errors::{AcquireError, RecvError, SendError, TryAcquireError, TryRecvError, TrySendError},
     internal,
     loom::sync::Arc,
@@ -62,10 +65,10 @@ trait Operation<T, Ch: internal::Channel>: 'static {
     type Slot;
     type Waiter: Waiter;
     fn acquire_slot(chan: &Chan<T, Ch>) -> Result<Self::Slot, Self::State>;
-    fn acquire_slot_cold(
+    fn acquire_slot_cold<B: BackoffStrategy>(
         chan: &Chan<T, Ch>,
         state: &mut Self::State,
-        first_call: bool,
+        backoff: bool,
     ) -> Result<Self::Slot, TryAcquireError>;
     fn waiter(chan: &Chan<T, Ch>) -> &Self::Waiter;
 }
@@ -78,12 +81,12 @@ impl<T, Ch: internal::Channel> Operation<T, Ch> for SendMsg {
     fn acquire_slot(chan: &Chan<T, Ch>) -> Result<Self::Slot, Self::State> {
         Ch::tx_acquire_slot(chan)
     }
-    fn acquire_slot_cold(
+    fn acquire_slot_cold<B: BackoffStrategy>(
         chan: &Chan<T, Ch>,
         state: &mut Self::State,
-        first_call: bool,
+        backoff: bool,
     ) -> Result<Self::Slot, TryAcquireError> {
-        Ch::tx_acquire_slot_cold(chan, state, first_call)
+        Ch::tx_acquire_slot_cold::<T, B>(chan, state, backoff)
     }
     fn waiter(chan: &Chan<T, Ch>) -> &Self::Waiter {
         &chan.tx_waiter
@@ -98,12 +101,12 @@ impl<T, Ch: internal::Channel> Operation<T, Ch> for RecvMsg {
     fn acquire_slot(chan: &Chan<T, Ch>) -> Result<Self::Slot, Self::State> {
         Ch::rx_acquire_slot(chan)
     }
-    fn acquire_slot_cold(
+    fn acquire_slot_cold<B: BackoffStrategy>(
         chan: &Chan<T, Ch>,
         state: &mut Self::State,
-        first_call: bool,
+        backoff: bool,
     ) -> Result<Self::Slot, TryAcquireError> {
-        Ch::rx_acquire_slot_cold(chan, state, first_call)
+        Ch::rx_acquire_slot_cold::<T, B>(chan, state, backoff)
     }
     fn waiter(chan: &Chan<T, Ch>) -> &Self::Waiter {
         &chan.rx_waiter
@@ -178,26 +181,28 @@ impl<T, Ch: internal::Channel> Chan<T, Ch> {
     }
 
     #[inline(always)]
-    fn try_acquire_slot<O: Operation<T, Ch>>(&self) -> Result<O::Slot, TryAcquireError> {
-        O::acquire_slot(self).or_else(|state| self.try_acquire_slot_cold::<O>(state))
+    fn try_acquire_slot<O: Operation<T, Ch>, B: BackoffStrategy>(
+        &self,
+    ) -> Result<O::Slot, TryAcquireError> {
+        O::acquire_slot(self).or_else(|state| self.try_acquire_slot_cold::<O, B>(state))
     }
 
     #[cold]
-    fn try_acquire_slot_cold<O: Operation<T, Ch>>(
+    fn try_acquire_slot_cold<O: Operation<T, Ch>, B: BackoffStrategy>(
         &self,
         mut state: O::State,
     ) -> Result<O::Slot, TryAcquireError> {
-        O::acquire_slot_cold(self, &mut state, true)
+        O::acquire_slot_cold::<B>(self, &mut state, true)
     }
 
     #[inline(always)]
-    fn try_send(&self, msg: T) -> Result<(), TrySendError<T>> {
-        self.write_slot(self.try_acquire_slot::<SendMsg>(), msg)
+    fn try_send<B: BackoffStrategy>(&self, msg: T) -> Result<(), TrySendError<T>> {
+        self.write_slot(self.try_acquire_slot::<SendMsg, B>(), msg)
     }
 
     #[inline(always)]
-    fn send_unbounded(&self, msg: T) -> Result<(), SendError<T>> {
-        match self.try_send(msg) {
+    fn send_unbounded<B: BackoffStrategy>(&self, msg: T) -> Result<(), SendError<T>> {
+        match self.try_send::<B>(msg) {
             Ok(()) => Ok(()),
             Err(TrySendError::Closed(msg)) => Err(SendError(msg)),
             Err(TrySendError::Full(_)) => unsafe { core::hint::unreachable_unchecked() },
@@ -205,33 +210,33 @@ impl<T, Ch: internal::Channel> Chan<T, Ch> {
     }
 
     #[inline(always)]
-    fn try_recv(&self) -> Result<T, TryRecvError> {
-        self.read_slot(self.try_acquire_slot::<RecvMsg>()?)
+    fn try_recv<B: BackoffStrategy>(&self) -> Result<T, TryRecvError> {
+        self.read_slot(self.try_acquire_slot::<RecvMsg, B>()?)
     }
 
     #[inline(always)]
-    fn poll_acquire_slot<'a, O: Operation<T, Ch>>(
+    fn poll_acquire_slot<'a, O: Operation<T, Ch>, B: BackoffStrategy>(
         &'a self,
         cx: &mut Context<'_>,
         wait: Pin<&mut <O::Waiter as Waiter>::Wait<'a>>,
     ) -> Poll<Result<O::Slot, AcquireError>> {
         match O::acquire_slot(self) {
             Ok(slot) => Poll::Ready(Ok(slot)),
-            Err(state) => self.poll_acquire_slot_cold::<O>(cx, wait, state),
+            Err(state) => self.poll_acquire_slot_cold::<O, B>(cx, wait, state),
         }
     }
 
     #[cold]
-    fn poll_acquire_slot_cold<'a, O: Operation<T, Ch>>(
+    fn poll_acquire_slot_cold<'a, O: Operation<T, Ch>, B: BackoffStrategy>(
         &'a self,
         cx: &mut Context<'_>,
         mut wait: Pin<&mut <O::Waiter as Waiter>::Wait<'a>>,
         mut state: O::State,
     ) -> Poll<Result<O::Slot, AcquireError>> {
-        let mut first_call = true;
+        let mut backoff = true;
         let mut waker_registered = false;
         loop {
-            match O::acquire_slot_cold(self, &mut state, first_call) {
+            match O::acquire_slot_cold::<B>(self, &mut state, backoff) {
                 Ok(slot) => {
                     if waker_registered {
                         unsafe { O::waiter(self).unregister() };
@@ -243,31 +248,31 @@ impl<T, Ch: internal::Channel> Chan<T, Ch> {
                 Err(TryAcquireError::Unavailable) => {}
             }
             waker_registered = unsafe { O::waiter(self).register(wait.as_mut(), cx.waker()) };
-            first_call = false;
+            backoff = false;
         }
     }
 
     #[cfg(feature = "blocking")]
-    fn acquire_slot_blocking<O: Operation<T, Ch>>(
+    fn acquire_slot_blocking<O: Operation<T, Ch>, B: BackoffStrategy>(
         &self,
         parker: impl Into<Parker>,
     ) -> Result<O::Slot, TryAcquireError> {
         O::acquire_slot(self)
-            .or_else(|state| self.acquire_slot_blocking_cold::<O>(state, parker.into()))
+            .or_else(|state| self.acquire_slot_blocking_cold::<O, B>(state, parker.into()))
     }
 
     #[cfg(feature = "blocking")]
     #[cold]
-    fn acquire_slot_blocking_cold<O: Operation<T, Ch>>(
+    fn acquire_slot_blocking_cold<O: Operation<T, Ch>, B: BackoffStrategy>(
         &self,
         mut state: O::State,
         mut parker: Parker,
     ) -> Result<O::Slot, TryAcquireError> {
-        let mut wait = core::pin::pin!(<O::Waiter as Waiter>::Wait::default());
-        let mut first_call = true;
+        let mut wait = pin!(<O::Waiter as Waiter>::Wait::default());
+        let mut backoff = true;
         let mut waker_registered = false;
         loop {
-            match O::acquire_slot_cold(self, &mut state, first_call) {
+            match O::acquire_slot_cold::<B>(self, &mut state, backoff) {
                 Ok(slot) => {
                     if waker_registered {
                         unsafe { O::waiter(self).unregister() };
@@ -283,49 +288,57 @@ impl<T, Ch: internal::Channel> Chan<T, Ch> {
             } else {
                 unsafe { O::waiter(self).register(wait.as_mut(), &PARK_WAKER) }
             };
-            first_call = false;
+            backoff = false;
         }
     }
 
     #[cfg(feature = "blocking")]
     #[inline(always)]
-    fn send_blocking(&self, msg: T) -> Result<(), SendError<T>> {
-        let slot = self.acquire_slot_blocking::<SendMsg>(());
+    fn send_blocking<B: BackoffStrategy>(&self, msg: T) -> Result<(), SendError<T>> {
+        let slot = self.acquire_slot_blocking::<SendMsg, B>(());
         self.write_slot(slot, msg)
     }
 
     #[cfg(feature = "blocking")]
     #[inline(always)]
-    fn send_deadline(&self, msg: T, deadline: Instant) -> Result<(), SendTimeoutError<T>> {
-        let slot = self.acquire_slot_blocking::<SendMsg>(deadline);
+    fn send_deadline<B: BackoffStrategy>(
+        &self,
+        msg: T,
+        deadline: Instant,
+    ) -> Result<(), SendTimeoutError<T>> {
+        let slot = self.acquire_slot_blocking::<SendMsg, B>(deadline);
         self.write_slot(slot, msg)
     }
 
     #[cfg(feature = "blocking")]
     #[inline(always)]
-    fn send_timeout(&self, msg: T, timeout: Duration) -> Result<(), SendTimeoutError<T>> {
-        let slot = self.acquire_slot_blocking::<SendMsg>(timeout);
+    fn send_timeout<B: BackoffStrategy>(
+        &self,
+        msg: T,
+        timeout: Duration,
+    ) -> Result<(), SendTimeoutError<T>> {
+        let slot = self.acquire_slot_blocking::<SendMsg, B>(timeout);
         self.write_slot(slot, msg)
     }
 
     #[cfg(feature = "blocking")]
     #[inline(always)]
-    fn recv_blocking(&self) -> Result<T, RecvError> {
-        let slot = self.acquire_slot_blocking::<RecvMsg>(())?;
+    fn recv_blocking<B: BackoffStrategy>(&self) -> Result<T, RecvError> {
+        let slot = self.acquire_slot_blocking::<RecvMsg, B>(())?;
         self.read_slot(slot)
     }
 
     #[cfg(feature = "blocking")]
     #[inline(always)]
-    fn recv_deadline(&self, deadline: Instant) -> Result<T, RecvTimeoutError> {
-        let slot = self.acquire_slot_blocking::<RecvMsg>(deadline)?;
+    fn recv_deadline<B: BackoffStrategy>(&self, deadline: Instant) -> Result<T, RecvTimeoutError> {
+        let slot = self.acquire_slot_blocking::<RecvMsg, B>(deadline)?;
         self.read_slot(slot)
     }
 
     #[cfg(feature = "blocking")]
     #[inline(always)]
-    fn recv_timeout(&self, timeout: Duration) -> Result<T, RecvTimeoutError> {
-        let slot = self.acquire_slot_blocking::<RecvMsg>(timeout)?;
+    fn recv_timeout<B: BackoffStrategy>(&self, timeout: Duration) -> Result<T, RecvTimeoutError> {
+        let slot = self.acquire_slot_blocking::<RecvMsg, B>(timeout)?;
         self.read_slot(slot)
     }
 
@@ -382,19 +395,21 @@ impl<T, Ch: internal::Channel> fmt::Debug for Chan<T, Ch> {
 /// Resolves once the message has been written in the channel, or the channel is closed.
 ///
 /// Message being sent can be retrieved with [`cancel`](Self::cancel), cancelling the future.
-pub struct SendFuture<'a, T, Ch: Channel> {
+pub struct SendFuture<'a, T, Ch: Channel, B: BackoffStrategy = NoBackoff> {
     chan: &'a Chan<T, Ch>,
     msg: Option<T>,
     wait: <Ch::TxWaiter as Waiter>::Wait<'a>,
+    _backoff: PhantomData<B>,
 }
 
-impl<'a, T, Ch: Channel> SendFuture<'a, T, Ch> {
+impl<'a, T, Ch: Channel, B: BackoffStrategy> SendFuture<'a, T, Ch, B> {
     #[inline(always)]
     fn new(chan: &'a Chan<T, Ch>, msg: T) -> Self {
         Self {
             chan,
             msg: Some(msg),
             wait: Default::default(),
+            _backoff: PhantomData,
         }
     }
 
@@ -404,14 +419,14 @@ impl<'a, T, Ch: Channel> SendFuture<'a, T, Ch> {
     }
 }
 
-impl<T, Ch: Channel> Future for SendFuture<'_, T, Ch> {
+impl<T, Ch: Channel, B: BackoffStrategy> Future for SendFuture<'_, T, Ch, B> {
     type Output = Result<(), SendError<T>>;
 
     #[inline(always)]
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = unsafe { self.get_unchecked_mut() };
         let wait = unsafe { Pin::new_unchecked(&mut this.wait) };
-        let slot = ready!(this.chan.poll_acquire_slot::<SendMsg>(cx, wait));
+        let slot = ready!(this.chan.poll_acquire_slot::<SendMsg, B>(cx, wait));
         let Some(msg) = this.msg.take() else {
             #[cold]
             #[inline(never)]
@@ -429,35 +444,37 @@ impl<T, Ch: Channel> Future for SendFuture<'_, T, Ch> {
 /// Resolves once a message is available, or the channel is closed.
 ///
 /// The future can be reused to receive subsequent messages, as a [`Stream`](futures_core::stream::Stream).
-pub struct RecvFuture<'a, T, Ch: Channel> {
+pub struct RecvFuture<'a, T, Ch: Channel, B: BackoffStrategy = NoBackoff> {
     chan: &'a Chan<T, Ch>,
     wait: <Ch::RxWaiter as Waiter>::Wait<'a>,
+    _backoff: PhantomData<B>,
 }
 
-impl<'a, T, Ch: Channel> RecvFuture<'a, T, Ch> {
+impl<'a, T, Ch: Channel, B: BackoffStrategy> RecvFuture<'a, T, Ch, B> {
     #[inline(always)]
     fn new(chan: &'a Chan<T, Ch>) -> Self {
         Self {
             chan,
             wait: Default::default(),
+            _backoff: PhantomData,
         }
     }
 }
 
-impl<T, Ch: Channel> Future for RecvFuture<'_, T, Ch> {
+impl<T, Ch: Channel, B: BackoffStrategy> Future for RecvFuture<'_, T, Ch, B> {
     type Output = Result<T, RecvError>;
 
     #[inline(always)]
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = unsafe { self.get_unchecked_mut() };
         let wait = unsafe { Pin::new_unchecked(&mut this.wait) };
-        let slot = ready!(this.chan.poll_acquire_slot::<RecvMsg>(cx, wait))?;
+        let slot = ready!(this.chan.poll_acquire_slot::<RecvMsg, B>(cx, wait))?;
         Poll::Ready(this.chan.read_slot(slot))
     }
 }
 
 #[cfg(feature = "stream")]
-impl<T, Ch: Channel> futures_core::Stream for RecvFuture<'_, T, Ch> {
+impl<T, Ch: Channel, B: BackoffStrategy> futures_core::Stream for RecvFuture<'_, T, Ch, B> {
     type Item = T;
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.poll(cx).map(Result::ok)
@@ -569,30 +586,30 @@ pub(crate) enum Half {
 }
 
 macro_rules! channel_half {
-    ($ty:ident) => {
-        impl<T, Ch: Channel> Drop for $ty<T, Ch> {
+    ($ty:ident $(<$B:ident>)?) => {
+        impl<T, Ch: Channel, $($B: BackoffStrategy)?> Drop for $ty<T, Ch, $($B)?> {
             fn drop(&mut self) {
                 self.chan.drop_half(Half::$ty);
             }
         }
-        impl<T, Ch: Channel> internal::ChannelHalf<T, Ch> for $ty<T, Ch> {
+        impl<T, Ch: Channel, $($B: BackoffStrategy)?> internal::ChannelHalf<T, Ch> for $ty<T, Ch, $($B)?> {
             const HALF: Half = Half::$ty;
             fn new(chan: Arc<Chan<T, Ch>>) -> Self {
-                Self { chan }
+                Self { chan, $(_backoff: PhantomData::<$B>)? }
             }
             fn chan(&self) -> &Arc<Chan<T, Ch>> {
                 &self.chan
             }
         }
-        impl<T, Ch: Channel> ChannelHalf for $ty<T, Ch> {
+        impl<T, Ch: Channel, $($B: BackoffStrategy)?> ChannelHalf for $ty<T, Ch, $($B)?> {
             type Msg = T;
             type Channel = Ch;
         }
-        unsafe impl<T: Send, Ch: Channel> Send for $ty<T, Ch> {}
-        unsafe impl<T: Send, Ch: Channel> Sync for $ty<T, Ch> {}
-        impl<T, Ch: Channel> UnwindSafe for $ty<T, Ch> {}
-        impl<T, Ch: Channel> RefUnwindSafe for $ty<T, Ch> {}
-        impl<T, Ch: Channel> $ty<T, Ch> {
+        unsafe impl<T: Send, Ch: Channel, $($B: BackoffStrategy)?> Send for $ty<T, Ch, $($B)?> {}
+        unsafe impl<T: Send, Ch: Channel, $($B: BackoffStrategy)?> Sync for $ty<T, Ch, $($B)?> {}
+        impl<T, Ch: Channel, $($B: BackoffStrategy)?> UnwindSafe for $ty<T, Ch, $($B)?> {}
+        impl<T, Ch: Channel, $($B: BackoffStrategy)?> RefUnwindSafe for $ty<T, Ch, $($B)?> {}
+        impl<T, Ch: Channel, $($B: BackoffStrategy)?> $ty<T, Ch, $($B)?> {
             /// Returns `true` if the channel is closed.
             pub fn is_closed(&self) -> bool {
                 Ch::is_closed(&self.chan)
@@ -624,8 +641,16 @@ macro_rules! channel_half {
             {
                 Ch::capacity(&self.chan).unwrap()
             }
+            $(
+            /// Updates the backoff strategy.
+            pub fn with_backoff<B2: BackoffStrategy>(self) -> $ty<T, Ch, B2> {
+                let _ = PhantomData::<$B>;
+                let this = ManuallyDrop::new(self);
+                internal::ChannelHalf::new(unsafe {Arc::from_raw(Arc::as_ptr(&this.chan))})
+            }
+            )?
         }
-        impl<T, Ch: Channel> core::fmt::Debug for $ty<T, Ch> {
+        impl<T, Ch: Channel, $($B: BackoffStrategy)?> core::fmt::Debug for $ty<T, Ch, $($B)?> {
             fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                 f.debug_tuple(stringify!($ty)).field(&self.chan).finish()
             }
@@ -633,35 +658,35 @@ macro_rules! channel_half {
     };
 }
 macro_rules! tx_half {
-    ($ty:ident $(, $mut:tt)?) => {
-        impl<T, Ch: Channel> $ty<T, Ch> {
+    ($ty:ident $(<$B:ident>)? $(, $mut:tt)?) => {
+        impl<T, Ch: Channel, $($B: BackoffStrategy)?> $ty<T, Ch, $($B)?> {
             /// Sends a message, waiting asynchronously if the channel is full.
             #[inline]
-            pub fn send(&$($mut)? self, msg: T) -> SendFuture<'_, T, Ch> {
+            pub fn send(&$($mut)? self, msg: T) -> SendFuture<'_, T, Ch, $($B)?> {
                 SendFuture::new(&self.chan, msg)
             }
             /// Sends a message, blocking the current thread if the channel is full.
             #[cfg(feature = "blocking")]
             #[inline]
             pub fn send_blocking(&$($mut)? self, msg: T) -> Result<(), SendError<T>> {
-                self.chan.send_blocking(msg)
+                self.chan.send_blocking::<backoff!($($B)?)>(msg)
             }
             /// Sends a message, blocking until `deadline` if the channel is full.
             #[cfg(feature = "blocking")]
             #[inline]
             pub fn send_deadline(&$($mut)? self, msg: T, deadline: Instant) -> Result<(), SendTimeoutError<T>> {
-                self.chan.send_deadline(msg, deadline)
+                self.chan.send_deadline::<backoff!($($B)?)>(msg, deadline)
             }
             /// Sends a message, blocking for up to `timeout` if the channel is full.
             #[cfg(feature = "blocking")]
             #[inline]
             pub fn send_timeout(&$($mut)? self, msg: T, timeout: Duration) -> Result<(), SendTimeoutError<T>> {
-                self.chan.send_timeout(msg, timeout)
+                self.chan.send_timeout::<backoff!($($B)?)>(msg, timeout)
             }
             /// Attempts to send a message without waiting.
             #[inline]
             pub fn try_send(&$($mut)? self, msg: T) -> Result<(), TrySendError<T>> {
-                self.chan.try_send(msg)
+                self.chan.try_send::<backoff!($($B)?)>(msg)
             }
             /// Returns `true` if the channel is full.
             pub fn is_full(&self) -> bool {
@@ -671,42 +696,42 @@ macro_rules! tx_half {
     };
 }
 macro_rules! utx_methods {
-    ($ty:ident $(, $mut:tt)?) => {
-        impl<T, Ch: Channel> $ty<T, Ch> {
+    ($ty:ident $(<$B:ident>)? $(, $mut:tt)?) => {
+        impl<T, Ch: Channel, $($B: BackoffStrategy)?> $ty<T, Ch, $($B)?> {
             /// Sends a message. Never blocks or returns [`TrySendError::Full`] since the channel
             /// is unbounded.
             #[inline]
             pub fn send_unbounded(&$($mut)? self, msg: T) -> Result<(), SendError<T>> {
-                self.chan.send_unbounded(msg)
+                self.chan.send_unbounded::<backoff!($($B)?)>(msg)
             }
         }
     };
 }
 macro_rules! rx_half {
-    ($ty:ident $(, $mut:tt)?) => {
-        impl<T, Ch: Channel> $ty<T, Ch> {
+    ($ty:ident $(<$B:ident>)? $(, $mut:tt)?) => {
+        impl<T, Ch: Channel, $($B: BackoffStrategy)?> $ty<T, Ch, $($B)?> {
             /// Receives a message, waiting asynchronously if the channel is empty.
             #[inline]
-            pub fn recv(&$($mut)? self) -> RecvFuture<'_, T, Ch> {
+            pub fn recv(&$($mut)? self) -> RecvFuture<'_, T, Ch, $($B)?> {
                 RecvFuture::new(&self.chan)
             }
             /// Receives a message, blocking the current thread if the channel is empty.
             #[cfg(feature = "blocking")]
             #[inline]
             pub fn recv_blocking(&$($mut)? self) -> Result<T, RecvError> {
-                self.chan.recv_blocking()
+                self.chan.recv_blocking::<backoff!($($B)?)>()
             }
             /// Receives a message, blocking until `deadline` if the channel is empty.
             #[cfg(feature = "blocking")]
             #[inline]
             pub fn recv_deadline(&$($mut)? self, deadline: Instant) -> Result<T, RecvTimeoutError> {
-                self.chan.recv_deadline(deadline)
+                self.chan.recv_deadline::<backoff!($($B)?)>(deadline)
             }
             /// Receives a message, blocking for up to `timeout` if the channel is empty.
             #[cfg(feature = "blocking")]
             #[inline]
             pub fn recv_timeout(&$($mut)? self, timeout: Duration) -> Result<T, RecvTimeoutError> {
-                self.chan.recv_timeout(timeout)
+                self.chan.recv_timeout::<backoff!($($B)?)>(timeout)
             }
             /// Returns a blocking iterator that yields messages until the channel is closed.
             #[cfg(feature = "blocking")]
@@ -716,7 +741,7 @@ macro_rules! rx_half {
             /// Attempts to receive a message without waiting.
             #[inline]
             pub fn try_recv(&$($mut)? self) -> Result<T, TryRecvError> {
-                self.chan.try_recv()
+                self.chan.try_recv::<backoff!($($B)?)>()
             }
             /// Returns `true` if the channel is empty.
             pub fn is_empty(&self) -> bool {
@@ -726,19 +751,27 @@ macro_rules! rx_half {
     };
 }
 macro_rules! cloneable_half {
-    ($ty:ident) => {
-        impl<T, Ch: Channel> Clone for $ty<T, Ch> {
+    ($ty:ident $(<$B:ident>)?) => {
+        impl<T, Ch: Channel, $($B: BackoffStrategy)?> Clone for $ty<T, Ch, $($B)?> {
             fn clone(&self) -> Self {
                 self.chan.clone_half(Half::$ty);
                 internal::ChannelHalf::raw_clone(self)
             }
         }
-        impl<T, Ch: Channel> $ty<T, Ch> {
+        impl<T, Ch: Channel, $($B: BackoffStrategy)?> $ty<T, Ch, $($B)?> {
             /// Returns a [`Weak`] reference that does not prevent the channel from being closed.
             pub fn downgrade(&self) -> Weak<Self> {
                 Weak::new(self)
             }
         }
+    };
+}
+macro_rules! backoff {
+    ($B:ident) => {
+        $B
+    };
+    () => {
+        NoBackoff
     };
 }
 
@@ -750,12 +783,13 @@ tx_half!(Tx, mut);
 channel_half!(Tx);
 
 /// Multi-producer cloneable sending half.
-pub struct MTx<T, Ch: Channel> {
+pub struct MTx<T, Ch: Channel, B: BackoffStrategy = NoBackoff> {
     chan: Arc<Chan<T, Ch>>,
+    _backoff: PhantomData<B>,
 }
-tx_half!(MTx);
-channel_half!(MTx);
-cloneable_half!(MTx);
+tx_half!(MTx<B>);
+channel_half!(MTx<B>);
+cloneable_half!(MTx<B>);
 
 /// Single-producer unbounded sending half, which never blocks. Requires exclusive access (`&mut self`) to send.
 pub struct UTx<T, Ch: Channel> {
@@ -765,12 +799,13 @@ utx_methods!(UTx, mut);
 channel_half!(UTx);
 
 /// Multi-producer cloneable unbounded sending half, which never blocks.
-pub struct UMTx<T, Ch: Channel> {
+pub struct UMTx<T, Ch: Channel, B: BackoffStrategy = NoBackoff> {
     chan: Arc<Chan<T, Ch>>,
+    _backoff: PhantomData<B>,
 }
-utx_methods!(UMTx);
-channel_half!(UMTx);
-cloneable_half!(UMTx);
+utx_methods!(UMTx<B>);
+channel_half!(UMTx<B>);
+cloneable_half!(UMTx<B>);
 
 /// Single-consumer receiving half. Requires exclusive access (`&mut self`) to receive.
 pub struct Rx<T, Ch: Channel> {
@@ -780,12 +815,13 @@ rx_half!(Rx, mut);
 channel_half!(Rx);
 
 /// Multi-consumer cloneable receiving half.
-pub struct MRx<T, Ch: Channel> {
+pub struct MRx<T, Ch: Channel, B: BackoffStrategy = NoBackoff> {
     chan: Arc<Chan<T, Ch>>,
+    _backoff: PhantomData<B>,
 }
-rx_half!(MRx);
-channel_half!(MRx);
-cloneable_half!(MRx);
+rx_half!(MRx<B>);
+channel_half!(MRx<B>);
+cloneable_half!(MRx<B>);
 
 impl<T, Ch: Channel> Rx<T, Ch> {
     /// Poll-based receive for use in manual [`Future`] or

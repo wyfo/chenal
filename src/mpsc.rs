@@ -3,10 +3,10 @@ mod array;
 
 pub use array::Array;
 
-use crate::{channel, channel::Channel};
+use crate::{backoff::NoBackoff, channel, channel::Channel};
 
 /// Alias of `MTx<T, mpsc::Array>`.
-pub type MTx<T> = channel::MTx<T, Array>;
+pub type MTx<T, B = NoBackoff> = channel::MTx<T, Array, B>;
 /// Alias of `Rx<T, mpsc::Array>`.
 pub type Rx<T> = channel::Rx<T, Array>;
 
