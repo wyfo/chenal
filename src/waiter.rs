@@ -28,6 +28,7 @@ impl Waiter for SpmcWaker {
     unsafe fn unregister(&self) {
         unsafe { self.unregister() };
     }
+    #[inline(always)]
     fn wake(&self) {
         self.wake_cold();
     }
@@ -50,6 +51,7 @@ impl<SP: SyncPrimitives> Waiter for WaitQueue<SP> {
         true
     }
     unsafe fn unregister(&self) {}
+    #[inline(always)]
     fn wake(&self) {
         self.notify_one();
     }

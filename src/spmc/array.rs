@@ -122,6 +122,7 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
         tail == max_tail
     }
 
+    #[inline(always)]
     fn tx_acquire_slot<T>(chan: &Chan<T, Self>) -> Result<Self::TxSlot<T>, Self::TxState<T>> {
         let state = chan.tx_state.load(Relaxed);
         let tail = state & LB;
@@ -149,6 +150,7 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
         Ok(tail | max_tail << HB_SHIFT)
     }
 
+    #[inline(always)]
     fn write_slot<T>(
         chan: &Chan<T, Self>,
         state: Self::TxSlot<T>,
@@ -199,6 +201,7 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
         head == tail
     }
 
+    #[inline(always)]
     fn rx_acquire_slot<T>(chan: &Chan<T, Self>) -> Result<Self::RxSlot<T>, Self::RxState<T>> {
         let state = chan.rx_state.load(Acquire);
         let head = state & LB;
@@ -261,6 +264,7 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
         }
     }
 
+    #[inline(always)]
     fn read_slot<T>(_chan: &Chan<T, Self>, msg: Self::RxSlot<T>) -> T {
         msg
     }

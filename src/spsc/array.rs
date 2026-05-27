@@ -119,6 +119,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity> internal::Channel for Array<BLOCK_SIZ
         tail == max_tail
     }
 
+    #[inline(always)]
     fn tx_acquire_slot<T>(chan: &Chan<T, Self>) -> Result<Self::TxSlot<T>, Self::TxState<T>> {
         let state = chan.tx_state.load(Relaxed);
         let tail = state & LB;
@@ -146,6 +147,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity> internal::Channel for Array<BLOCK_SIZ
         Ok(tail | max_tail << HB_SHIFT)
     }
 
+    #[inline(always)]
     fn write_slot<T>(
         chan: &Chan<T, Self>,
         state: Self::TxSlot<T>,
@@ -197,6 +199,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity> internal::Channel for Array<BLOCK_SIZ
         head == tail
     }
 
+    #[inline(always)]
     fn rx_acquire_slot<T>(chan: &Chan<T, Self>) -> Result<Self::RxSlot<T>, Self::RxState<T>> {
         let state = chan.rx_state.load(Relaxed);
         let head = state & LB;
@@ -230,6 +233,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity> internal::Channel for Array<BLOCK_SIZ
         Ok(head | tail << HB_SHIFT)
     }
 
+    #[inline(always)]
     fn read_slot<T>(chan: &Chan<T, Self>, state: Self::RxSlot<T>) -> T {
         let head_idx = state & chan.slot_mask();
         let slot = unsafe { chan.get_unchecked(head_idx) };

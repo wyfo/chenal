@@ -132,6 +132,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
         tail == max_tail
     }
 
+    #[inline(always)]
     fn tx_acquire_slot<T>(chan: &Chan<T, Self>) -> Result<Self::TxSlot<T>, Self::TxState<T>> {
         let state = chan.tx_state.load(Relaxed);
         let tail = state & LB;
@@ -188,6 +189,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
         }
     }
 
+    #[inline(always)]
     fn write_slot<T>(
         _chan: &Chan<T, Self>,
         (slot, tail): Self::TxSlot<T>,
@@ -217,6 +219,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
         slot.stamp.load(Relaxed) != head
     }
 
+    #[inline(always)]
     fn rx_acquire_slot<T>(chan: &Chan<T, Self>) -> Result<Self::RxSlot<T>, Self::RxState<T>> {
         let head = chan.rx_state.load(Relaxed);
         let head_idx = head & chan.slot_mask();
@@ -264,6 +267,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
         Err(TryAcquireError::Unavailable)
     }
 
+    #[inline(always)]
     fn read_slot<T>(chan: &Chan<T, Self>, (slot, head): Self::RxSlot<T>) -> T {
         let msg = unsafe { slot.as_ref().msg.with_ref(|m| m.assume_init_read()) };
         let new_head = chan.wrap_around(head & chan.slot_mask(), head, false);

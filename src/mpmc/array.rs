@@ -126,6 +126,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
         tail == max_tail
     }
 
+    #[inline(always)]
     fn tx_acquire_slot<T>(chan: &Chan<T, Self>) -> Result<Self::TxSlot<T>, Self::TxState<T>> {
         let state = chan.tx_state.load(Relaxed);
         let tail = state & LB;
@@ -182,6 +183,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
         }
     }
 
+    #[inline(always)]
     fn write_slot<T>(
         _chan: &Chan<T, Self>,
         (slot, tail): Self::TxSlot<T>,
@@ -210,6 +212,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
         slot.stamp.load(Relaxed) != head
     }
 
+    #[inline(always)]
     fn rx_acquire_slot<T>(chan: &Chan<T, Self>) -> Result<Self::RxSlot<T>, Self::RxState<T>> {
         let head = chan.rx_state.load(Relaxed);
         let head_idx = head & chan.slot_mask();
@@ -277,6 +280,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
         }
     }
 
+    #[inline(always)]
     fn read_slot<T>(_chan: &Chan<T, Self>, msg: Self::RxSlot<T>) -> T {
         msg
     }
