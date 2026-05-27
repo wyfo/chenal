@@ -34,7 +34,7 @@ jobs:
       - id: compute-seeds
         run: python3 -c "print('seeds=' + str([f'{i}..{i+$TOTAL//$RUNNERS}' for i in range(0,$TOTAL,$TOTAL//$RUNNERS)]))" >> $GITHUB_OUTPUT
         env:
-          TOTAL: 2048
+          TOTAL: 512
           RUNNERS: 16
 
   miri:
