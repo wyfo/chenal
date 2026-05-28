@@ -23,7 +23,7 @@ std = ["aiq/std", "crossbeam-utils/std"]
 stream = ["dep:futures-core"]
 
 [dependencies]
-aiq = { version = "0.1.0-alpha.2", default-features = false, features = ["wait-queue"] }
+aiq = { version = "0.1.0-alpha.3", default-features = false, features = ["wait-queue"] }
 crossbeam-utils = { version = "0.8", default-features = false }
 futures-core = { version = "0.3", optional = true }
 spmc-waker = "0.1.0-alpha.1"

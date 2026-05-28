@@ -1,0 +1,156 @@
+chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
+	push rbp
+	push r15
+	push r14
+	push r13
+	push r12
+	push rbx
+	sub rsp, 88
+	mov r15, rdx
+	mov r14, rsi
+	mov rbx, rdi
+	mov qword ptr [rsp + 8], 0
+	xor edx, edx
+	movabs rbp, -4294967296
+	mov r10, qword ptr [rip + chenal::blocking::Parker::park@GOTPCREL]
+.LBB8_1:
+	mov rax, r15
+	jmp .LBB8_2
+.LBB8_7:
+	mov rax, r15
+	lock cmpxchg	qword ptr [r14], r8
+	je .LBB8_8
+.LBB8_2:
+	mov r15, rax
+	mov rdi, qword ptr [r14 + 424]
+	mov rax, qword ptr [r14 + 432]
+	mov rsi, rax
+	and rsi, r15
+	dec rdi
+	cmp rsi, rdi
+	seta dil
+	sbb dil, 0
+	je .LBB8_5
+	movzx eax, dil
+	cmp eax, 255
+	jne .LBB8_15
+	lea r8, [r15 + 1]
+	jmp .LBB8_6
+.LBB8_5:
+	or eax, r15d
+	inc eax
+	mov r8, r15
+	and r8, rbp
+	or r8, rax
+.LBB8_6:
+	mov edi, r15d
+	mov rax, r15
+	shr rax, 32
+	cmp eax, r15d
+	jne .LBB8_7
+	mov rax, qword ptr [r14]
+	cmp rax, r15
+	jne .LBB8_2
+	mov rax, qword ptr [r14 + 128]
+	mov r9d, dword ptr [r14 + 432]
+	add eax, r9d
+	inc eax
+	cmp rax, rdi
+	je .LBB8_20
+	mov r8d, r8d
+	shl rax, 32
+	or rax, r8
+	mov r8, rax
+	jmp .LBB8_7
+.LBB8_20:
+	test dl, 1
+	je .LBB8_21
+	mov r13, rcx
+	mov rdi, rcx
+	mov r12, r10
+	call r10
+	xor edx, edx
+	cmp al, 2
+	mov rcx, r13
+	mov r10, r12
+	je .LBB8_1
+	jmp .LBB8_30
+.LBB8_21:
+	mov r12, r10
+	mov r13, rcx
+	cmp qword ptr [rsp + 8], 0
+	jne .LBB8_23
+	lea rax, [rsp + 16]
+	xorps xmm0, xmm0
+	movups xmmword ptr [rax], xmm0
+	mov qword ptr [rax + 16], 0
+	lea rax, [r14 + 256]
+	mov qword ptr [rsp + 8], rax
+	mov byte ptr [rsp + 48], 2
+.LBB8_23:
+	mov rax, qword ptr [rip + chenal::blocking::PARK_WAKER@GOTPCREL]
+	mov qword ptr [rsp + 56], rax
+	mov qword ptr [rsp + 64], rax
+	mov qword ptr [rsp + 72], 0
+	lea rdi, [rsp + 8]
+	lea rsi, [rsp + 56]
+	call aiq::wait_queue::Wait<Q,SP>::poll_wait
+	mov dl, 1
+	test al, al
+	mov rcx, r13
+	mov r10, r12
+	jne .LBB8_1
+	cmp qword ptr [rsp + 8], 0
+	jne .LBB8_26
+.LBB8_27:
+	mov qword ptr [rsp + 8], 0
+	xor edx, edx
+	jmp .LBB8_1
+.LBB8_26:
+	lea rdi, [rsp + 8]
+	call <chenal::waiter::OptionCold<T> as core::ops::drop::Drop>::drop::drop_cold
+	mov r10, r12
+	mov rcx, r13
+	jmp .LBB8_27
+.LBB8_8:
+	shl rsi, 4
+	add rsi, qword ptr [r14 + 416]
+	mov qword ptr [rbx], rsi
+	mov qword ptr [rbx + 8], rdi
+	cmp qword ptr [rsp + 8], 0
+	jne .LBB8_18
+.LBB8_19:
+	add rsp, 88
+	pop rbx
+	pop r12
+	pop r13
+	pop r14
+	pop r15
+	pop rbp
+	ret
+.LBB8_15:
+	mov byte ptr [rbx + 8], 0
+	mov qword ptr [rbx], 0
+	cmp qword ptr [rsp + 8], 0
+	je .LBB8_19
+.LBB8_18:
+	lea rdi, [rsp + 8]
+	call <chenal::waiter::OptionCold<T> as core::ops::drop::Drop>::drop::drop_cold
+	jmp .LBB8_19
+.LBB8_30:
+	mov byte ptr [rbx + 8], al
+	mov qword ptr [rbx], 0
+	cmp qword ptr [rsp + 8], 0
+	je .LBB8_19
+	jmp .LBB8_18
+	mov rbx, rax
+	cmp qword ptr [rsp + 8], 0
+	jne .LBB8_13
+.LBB8_14:
+	mov rdi, rbx
+	call _Unwind_Resume@PLT
+.LBB8_13:
+	lea rdi, [rsp + 8]
+	call <chenal::waiter::OptionCold<T> as core::ops::drop::Drop>::drop::drop_cold
+	jmp .LBB8_14
+	call qword ptr [rip + core::panicking::panic_in_cleanup@GOTPCREL]

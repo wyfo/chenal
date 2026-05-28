@@ -30,6 +30,14 @@ language = "rust"
 pass_filenames = false
 types_or = ["rust", "toml"]
 
+[[repos.hooks]]
+id = "asm"
+name = "asm"
+entry = "asm/check-asm.sh"
+language = "script"
+pass_filenames = false
+types_or = ["rust", "toml"]
+
 # TODO
 #[[repos.hooks]]
 #id = "clippy-loom"
