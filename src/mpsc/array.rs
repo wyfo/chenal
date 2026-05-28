@@ -3,10 +3,7 @@ use core::{
     marker::PhantomData,
     mem::MaybeUninit,
     ptr::NonNull,
-    sync::atomic::{
-        AtomicUsize,
-        Ordering::{Acquire, Relaxed, Release, SeqCst},
-    },
+    sync::atomic::Ordering::{Acquire, Relaxed, Release, SeqCst},
 };
 
 use aiq::WaitQueue;
@@ -20,7 +17,7 @@ use crate::{
     channel::{BoundedChannel, Chan},
     errors::{SendError, TryAcquireError},
     internal,
-    loom::{AtomicUsizeExt, UnsafeCellExt, cell::UnsafeCell},
+    loom::{AtomicUsizeExt, UnsafeCellExt, cell::UnsafeCell, sync::atomic::AtomicUsize},
     sync::{DefaultSyncPrimitives, SyncPrimitives},
 };
 
@@ -251,9 +248,13 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
                     TryAcquireError::Closed
                 });
             }
+            #[cfg(not(loom))]
             let backoff = crossbeam_utils::Backoff::new();
             while unsafe { slot.as_ref() }.stamp.load(Acquire) != head {
+                #[cfg(not(loom))]
                 backoff.snooze();
+                #[cfg(loom)]
+                loom::hint::spin_loop();
             }
             return Ok((slot, head));
         }

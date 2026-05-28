@@ -9,7 +9,10 @@ use chenal::{
     errors::{RecvError, SendError, TryRecvError, TrySendError},
     mpmc::Array,
 };
+#[cfg(not(loom))]
 use futures::executor::block_on;
+#[cfg(loom)]
+use loom::future::block_on;
 use rstest::rstest;
 
 struct Bool<const BOOL: bool>;
@@ -317,5 +320,74 @@ fn drop_buffered(#[case] offset: usize, #[case] msgs: usize) {
 #[case::overflow((1 << (usize::BITS / 2 - 1)) + 1)]
 #[should_panic]
 fn invalid_capacity(#[case] capacity: usize) {
-    <Array>::new(capacity).channel::<()>();
+    <Array>::new(capacity).channel::<usize>();
+}
+
+// UB=TRUE is skipped: with multiple receivers, both can simultaneously enter
+// the UB=true rx spin loop on the same slot's stamp, and loom must explore the
+// cross-product of their yields with sender steps, blowing the branch limit.
+// This isn't a correctness issue (the spin is the intended UB=true semantics),
+// and a park-based fallback isn't valid because the stamp store is downgraded
+// to Release with no wake-up ordering guarantee.
+#[cfg(loom)]
+#[rstest]
+fn loom_mpmc<const UB: bool>(#[values(false, true)] sync: bool, #[values(FALSE)] ub: Bool<UB>) {
+    let _ = ub;
+    loom::model(move || {
+        let (tx, rx) = <Array<_, UB>>::new(2).channel::<usize>();
+        loom::thread::spawn({
+            let tx = tx.clone();
+            move || tx.send2(0, sync).unwrap()
+        });
+        loom::thread::spawn({
+            let tx = tx.clone();
+            move || tx.send2(1, sync).unwrap()
+        });
+        let r1 = loom::thread::spawn({
+            let rx = rx.clone();
+            move || rx.recv2(sync).unwrap()
+        });
+        let r2 = loom::thread::spawn({
+            let rx = rx.clone();
+            move || rx.recv2(sync).unwrap()
+        });
+        let mut values = vec![r1.join().unwrap(), r2.join().unwrap()];
+        values.sort_unstable();
+        assert_eq!(values, [0, 1]);
+    });
+}
+
+#[cfg(loom)]
+#[rstest]
+fn loom_concurrent_close<const UB: bool>(
+    #[values(false, true)] sync: bool,
+    #[values(FALSE, TRUE)] ub: Bool<UB>,
+) {
+    let _ = ub;
+    loom::model(move || {
+        let (tx, rx) = <Array<_, UB>>::new(2).channel::<usize>();
+        let s1 = loom::thread::spawn({
+            let tx = tx.clone();
+            move || tx.send2(0, sync).err().map(|SendError(m)| m)
+        });
+        let s2 = loom::thread::spawn({
+            let tx = tx.clone();
+            move || tx.send2(1, sync).err().map(|SendError(m)| m)
+        });
+        let r1 = loom::thread::spawn({
+            let rx = rx.clone();
+            move || rx.recv2(sync).ok()
+        });
+        let r2 = loom::thread::spawn({
+            let rx = rx.clone();
+            move || rx.recv2(sync).ok()
+        });
+        tx.close();
+        let mut values: Vec<usize> = [s1, s2, r1, r2]
+            .into_iter()
+            .flat_map(|t| t.join().unwrap())
+            .collect();
+        values.sort_unstable();
+        assert_eq!(values, [0, 1]);
+    });
 }

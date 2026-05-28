@@ -1,14 +1,16 @@
 pub(crate) extern crate std;
 use alloc::{sync::Arc, task::Wake};
 use core::{
-    error, fmt, ptr,
-    task::{RawWaker, RawWakerVTable, Waker},
+    error, fmt,
+    task::{RawWakerVTable, Waker},
 };
 pub(crate) use std::time::{Duration, Instant};
 
+#[cfg(not(loom))]
+use crate::loom::thread;
 use crate::{
     errors::{RecvError, SendError, TryAcquireError},
-    loom::{thread, thread::Thread},
+    loom::thread_local,
 };
 
 /// The operation either timed out or the channel is closed.
@@ -115,24 +117,51 @@ impl From<TryAcquireError> for RecvTimeoutError {
     }
 }
 
-struct ThreadWaker(Thread);
+#[cfg(loom)]
+#[derive(Default)]
+pub(crate) struct LoomParker {
+    mutex: loom::sync::Mutex<bool>,
+    condvar: loom::sync::Condvar,
+}
+
+#[cfg(loom)]
+impl LoomParker {
+    fn park(&self) {
+        let mut guard = self.mutex.lock().unwrap();
+        while !*guard {
+            guard = self.condvar.wait(guard).unwrap();
+        }
+        *guard = false;
+    }
+    fn unpark(&self) {
+        let mut guard = self.mutex.lock().unwrap();
+        *guard = true;
+        self.condvar.notify_one();
+    }
+}
+
+// https://github.com/tokio-rs/loom/issues/249
+struct ThreadWaker(#[cfg(not(loom))] thread::Thread, #[cfg(loom)] LoomParker);
 impl Wake for ThreadWaker {
     fn wake(self: Arc<Self>) {
         self.0.unpark();
     }
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.0.unpark();
+    }
 }
-
-std::thread_local! {
-    static THREAD: Arc<ThreadWaker> = Arc::new(ThreadWaker(thread::current()));
+thread_local! {
+    static THREAD: Arc<ThreadWaker> = Arc::new(ThreadWaker(#[cfg(not(loom))]thread::current(), #[cfg(loom)] LoomParker::default()));
 }
 
 static LAZY_VTABLE: RawWakerVTable = RawWakerVTable::new(
-    |_| RawWaker::from(THREAD.with(|t| t.clone())),
+    |_| THREAD.with(|t| t.clone()).into(),
     |_| THREAD.with(|t| t.wake_by_ref()),
     |_| THREAD.with(|t| t.wake_by_ref()),
     |_| {},
 );
-pub(crate) static PARK_WAKER: Waker = unsafe { Waker::new(ptr::null(), &LAZY_VTABLE) };
+
+pub(crate) static PARK_WAKER: Waker = unsafe { Waker::new(core::ptr::null(), &LAZY_VTABLE) };
 
 pub(crate) enum Parker {
     Blocking,
@@ -144,11 +173,15 @@ pub(crate) enum Parker {
 }
 
 impl Parker {
-    #[cfg_attr(loom, expect(dead_code))]
+    #[cfg_attr(loom, expect(unused))]
     pub(crate) fn park(&mut self) -> Result<(), TryAcquireError> {
         let (deadline, now) = match self {
             Self::Blocking => {
+                #[cfg(not(loom))]
                 thread::park();
+                // https://github.com/tokio-rs/loom/issues/249
+                #[cfg(loom)]
+                THREAD.with(|t| t.0.park());
                 return Ok(());
             }
             Self::Deadline(deadline) => (*deadline, Instant::now()),

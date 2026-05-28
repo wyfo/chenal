@@ -9,7 +9,10 @@ use chenal::{
     errors::{RecvError, SendError, TryRecvError, TrySendError},
     mpsc::Array,
 };
+#[cfg(not(loom))]
 use futures::executor::block_on;
+#[cfg(loom)]
+use loom::future::block_on;
 use rstest::rstest;
 
 struct Bool<const BOOL: bool>;
@@ -310,7 +313,7 @@ fn drop_buffered(#[case] offset: usize, #[case] msgs: usize) {
 #[should_panic]
 fn invalid_capacity<const BS: usize>(#[case] capacity: usize, #[case] bs: Usize<BS>) {
     let _ = bs;
-    <Array<BS>>::new(capacity).channel::<()>();
+    <Array<BS>>::new(capacity).channel::<usize>();
 }
 
 // Capacity is reduced by partially read block.
@@ -346,5 +349,68 @@ fn block_completion_wakes_senders<const UB: bool>(#[values(FALSE, TRUE)] ub: Boo
         s.spawn(|| block_on(send1));
         s.spawn(|| block_on(send2));
         s.spawn(|| assert_eq!(rx.try_recv(), Ok(1)));
+    });
+}
+
+#[cfg(loom)]
+#[rstest]
+fn loom_mpsc<const BS: usize, const UB: bool>(
+    #[values(false, true)] sync: bool,
+    #[values(ONE, TWO)] bs: Usize<BS>,
+    #[values(FALSE, TRUE)] ub: Bool<UB>,
+) {
+    let _ = (bs, ub);
+    loom::model(move || {
+        let (tx, mut rx) = <Array<BS, _, UB>>::new(2).channel();
+        loom::thread::spawn({
+            let tx = tx.clone();
+            move || tx.send2(0, sync).unwrap()
+        });
+        loom::thread::spawn({
+            let tx = tx.clone();
+            move || tx.send2(1, sync).unwrap()
+        });
+        loom::thread::spawn({
+            let tx = tx.clone();
+            move || tx.send2(2, sync).unwrap()
+        });
+        let mut values = (0..3).map(|_| rx.recv2(sync).unwrap()).collect::<Vec<_>>();
+        values.sort_unstable();
+        assert_eq!(values, [0, 1, 2]);
+    });
+}
+
+#[cfg(loom)]
+#[rstest]
+fn loom_concurrent_close<const BS: usize, const UB: bool>(
+    #[values(false, true)] sync: bool,
+    #[values(ONE, TWO)] bs: Usize<BS>,
+    #[values(FALSE, TRUE)] ub: Bool<UB>,
+) {
+    let _ = (bs, ub);
+    loom::model(move || {
+        let (tx, mut rx) = <Array<BS, _, UB>>::new(2).channel::<usize>();
+        let h1 = loom::thread::spawn({
+            let tx = tx.clone();
+            move || tx.send2(0, sync)
+        });
+        let h2 = loom::thread::spawn({
+            let tx = tx.clone();
+            move || tx.send2(1, sync)
+        });
+        let h3 = loom::thread::spawn({
+            let tx = tx.clone();
+            move || tx.send2(2, sync)
+        });
+        loom::thread::spawn({
+            let tx = tx.clone();
+            move || tx.close()
+        });
+        let send = [h1, h2, h3]
+            .into_iter()
+            .flat_map(|h| Some(h.join().unwrap().err()?.0));
+        let mut values: Vec<usize> = iter::from_fn(|| rx.recv2(sync).ok()).chain(send).collect();
+        values.sort_unstable();
+        assert_eq!(values, [0, 1, 2]);
     });
 }

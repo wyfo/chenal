@@ -14,14 +14,14 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	mov qword ptr [rsp + 16], rax
 	xor ebp, ebp
 	movabs r12, -4294967296
-.LBB8_1:
+.LBB9_1:
 	mov rax, r13
-	jmp .LBB8_2
-.LBB8_7:
+	jmp .LBB9_2
+.LBB9_7:
 	mov rax, r13
 	lock cmpxchg	qword ptr [r14], rdi
-	je .LBB8_8
-.LBB8_2:
+	je .LBB9_8
+.LBB9_2:
 	mov r13, rax
 	mov rsi, qword ptr [r14 + 424]
 	mov rax, qword ptr [r14 + 432]
@@ -31,43 +31,43 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	cmp rdx, rsi
 	seta sil
 	sbb sil, 0
-	je .LBB8_5
+	je .LBB9_5
 	movzx eax, sil
 	cmp eax, 255
-	jne .LBB8_12
+	jne .LBB9_12
 	lea rdi, [r13 + 1]
-	jmp .LBB8_6
-.LBB8_5:
+	jmp .LBB9_6
+.LBB9_5:
 	or eax, r13d
 	inc eax
 	mov rdi, r13
 	and rdi, r12
 	or rdi, rax
-.LBB8_6:
+.LBB9_6:
 	mov esi, r13d
 	mov rax, r13
 	shr rax, 32
 	cmp eax, r13d
-	jne .LBB8_7
+	jne .LBB9_7
 	mov rax, qword ptr [r14]
 	cmp rax, r13
-	jne .LBB8_2
+	jne .LBB9_2
 	mov rax, qword ptr [r14 + 128]
 	mov r8d, dword ptr [r14 + 432]
 	add eax, r8d
 	inc eax
 	cmp rax, rsi
-	je .LBB8_14
+	je .LBB9_14
 	mov edi, edi
 	shl rax, 32
 	or rax, rdi
 	mov rdi, rax
-	jmp .LBB8_7
-.LBB8_14:
+	jmp .LBB9_7
+.LBB9_14:
 	test bpl, 1
-	jne .LBB8_21
+	jne .LBB9_21
 	cmp qword ptr [rcx], 0
-	jne .LBB8_17
+	jne .LBB9_17
 	lea rax, [r14 + 256]
 	mov qword ptr [rcx], rax
 	mov rax, qword ptr [rsp + 16]
@@ -75,7 +75,7 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	movups xmmword ptr [rax], xmm0
 	mov qword ptr [rax + 16], 0
 	mov byte ptr [rcx + 40], 2
-.LBB8_17:
+.LBB9_17:
 	mov qword ptr [rsp + 24], r15
 	mov qword ptr [rsp + 32], r15
 	mov qword ptr [rsp + 40], 0
@@ -86,28 +86,28 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	mov rcx, qword ptr [rsp + 8]
 	mov ebp, eax
 	test al, al
-	jne .LBB8_1
+	jne .LBB9_1
 	cmp qword ptr [rcx], 0
-	jne .LBB8_19
-.LBB8_20:
+	jne .LBB9_19
+.LBB9_20:
 	mov rcx, qword ptr [rsp + 8]
 	mov qword ptr [rcx], 0
-	jmp .LBB8_1
-.LBB8_19:
+	jmp .LBB9_1
+.LBB9_19:
 	mov rdi, qword ptr [rsp + 8]
 	call <chenal::waiter::OptionCold<T> as core::ops::drop::Drop>::drop::drop_cold
-	jmp .LBB8_20
-.LBB8_8:
+	jmp .LBB9_20
+.LBB9_8:
 	shl rdx, 4
 	add rdx, qword ptr [r14 + 416]
 	mov qword ptr [rbx + 8], rdx
 	mov qword ptr [rbx + 16], rsi
 	mov qword ptr [rbx], 0
-	jmp .LBB8_13
-.LBB8_12:
+	jmp .LBB9_13
+.LBB9_12:
 	xorps xmm0, xmm0
 	movups xmmword ptr [rbx], xmm0
-.LBB8_13:
+.LBB9_13:
 	add rsp, 56
 	pop rbx
 	pop r12
@@ -116,9 +116,9 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	pop r15
 	pop rbp
 	ret
-.LBB8_21:
+.LBB9_21:
 	mov qword ptr [rbx], 1
-	jmp .LBB8_13
+	jmp .LBB9_13
 	mov rcx, qword ptr [rsp + 8]
 	mov qword ptr [rcx], 0
 	mov rdi, rax

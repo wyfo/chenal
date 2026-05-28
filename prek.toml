@@ -38,11 +38,10 @@ language = "script"
 pass_filenames = false
 types_or = ["rust", "toml"]
 
-# TODO
-#[[repos.hooks]]
-#id = "clippy-loom"
-#name = "clippy-loom"
-#entry = "env RUSTFLAGS=--cfg=loom cargo clippy -- -D warnings"
-#language = "rust"
-#pass_filenames = false
-#types_or = ["rust", "toml"]
+[[repos.hooks]]
+id = "clippy-loom"
+name = "clippy-loom"
+entry = "env RUSTFLAGS=--cfg=loom cargo clippy -- -D warnings"
+language = "rust"
+pass_filenames = false
+types_or = ["rust", "toml"]

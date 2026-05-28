@@ -1,4 +1,4 @@
-use core::sync::atomic::AtomicUsize;
+use crate::loom::sync::atomic::AtomicUsize;
 
 pub(crate) trait RefCount: 'static {
     fn one() -> Self;

@@ -9,34 +9,34 @@ mpmc_send_blocking:
 	mov rsi, rax
 	shr rsi, 32
 	cmp rcx, rsi
-	je .LBB11_3
+	je .LBB12_3
 	mov rsi, qword ptr [rbx + 560]
 	and rsi, rax
 	mov rdi, qword ptr [rbx + 552]
 	dec rdi
 	cmp rsi, rdi
-	jae .LBB11_3
+	jae .LBB12_3
 	lea rdi, [rax + 1]
 	lock cmpxchg	qword ptr [rbx + 128], rdi
-	jne .LBB11_3
+	jne .LBB12_3
 	shl rsi, 4
 	add rsi, qword ptr [rbx + 544]
 	mov qword ptr [rsp + 8], rsi
 	mov qword ptr [rsp + 16], rcx
-.LBB11_6:
+.LBB12_6:
 	#MEMBARRIER
 	mov qword ptr [rsi], rdx
 	mov qword ptr [rsi + 8], rcx
 	mov rax, qword ptr [rbx + 432]
 	test al, 1
-	jne .LBB11_7
-.LBB11_8:
+	jne .LBB12_7
+.LBB12_8:
 	xor eax, eax
 	add rsp, 56
 	pop rbx
 	pop r14
 	ret
-.LBB11_3:
+.LBB12_3:
 	mov r14, rdx
 	mov dword ptr [rsp + 48], 1000000000
 	lea rsi, [rbx + 128]
@@ -46,21 +46,21 @@ mpmc_send_blocking:
 	call chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold
 	mov rsi, qword ptr [rsp + 8]
 	test rsi, rsi
-	je .LBB11_4
+	je .LBB12_4
 	mov rcx, qword ptr [rsp + 16]
 	mov rdx, r14
-	jmp .LBB11_6
-.LBB11_4:
+	jmp .LBB12_6
+.LBB12_4:
 	mov eax, 1
 	mov rdx, r14
 	add rsp, 56
 	pop rbx
 	pop r14
 	ret
-.LBB11_7:
+.LBB12_7:
 	add rbx, 432
 	mov rdi, rbx
 	mov rbx, rdx
 	call qword ptr [rip + aiq::queue::Queue<T,S,SP>::is_empty_locked@GOTPCREL]
 	mov rdx, rbx
-	jmp .LBB11_8
+	jmp .LBB12_8

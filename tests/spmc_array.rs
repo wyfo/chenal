@@ -9,7 +9,10 @@ use chenal::{
     errors::{RecvError, SendError, TryRecvError, TrySendError},
     spmc::Array,
 };
+#[cfg(not(loom))]
 use futures::executor::block_on;
+#[cfg(loom)]
+use loom::future::block_on;
 use rstest::rstest;
 
 trait Send2<T> {
@@ -256,5 +259,59 @@ fn drop_buffered(#[case] offset: usize, #[case] msgs: usize) {
 #[case::overflow((1 << (usize::BITS / 2 - 1)) + 1)]
 #[should_panic]
 fn invalid_capacity(#[case] capacity: usize) {
-    <Array>::new(capacity).channel::<()>();
+    <Array>::new(capacity).channel::<usize>();
+}
+
+#[cfg(loom)]
+#[rstest]
+fn loom_spmc(#[values(false, true)] sync: bool) {
+    loom::model(move || {
+        let (mut tx, rx) = <Array>::new(2).channel::<usize>();
+        let r1 = loom::thread::spawn({
+            let rx = rx.clone();
+            move || rx.recv2(sync).unwrap()
+        });
+        let r2 = loom::thread::spawn({
+            let rx = rx.clone();
+            move || rx.recv2(sync).unwrap()
+        });
+        let r3 = loom::thread::spawn({
+            let rx = rx.clone();
+            move || rx.recv2(sync).unwrap()
+        });
+        for i in 0..3 {
+            tx.send2(i, sync).unwrap();
+        }
+        let mut values = vec![r1.join().unwrap(), r2.join().unwrap(), r3.join().unwrap()];
+        values.sort_unstable();
+        assert_eq!(values, [0, 1, 2]);
+    });
+}
+
+#[cfg(loom)]
+#[rstest]
+fn loom_concurrent_close(#[values(false, true)] sync: bool) {
+    loom::model(move || {
+        let (mut tx, rx) = <Array>::new(2).channel::<usize>();
+        let r1 = loom::thread::spawn({
+            let rx = rx.clone();
+            move || rx.recv2(sync).ok()
+        });
+        let r2 = loom::thread::spawn({
+            let rx = rx.clone();
+            move || rx.recv2(sync).ok()
+        });
+        let r3 = loom::thread::spawn({
+            let rx = rx.clone();
+            move || rx.recv2(sync).ok()
+        });
+        loom::thread::spawn(move || rx.close());
+        let recv = [r1, r2, r3].into_iter().filter_map(|r| r.join().unwrap());
+        let mut values: Vec<usize> = (0..3)
+            .filter_map(|i| Some(tx.send2(i, sync).err()?.0))
+            .chain(recv)
+            .collect();
+        values.sort_unstable();
+        assert_eq!(values, [0, 1, 2]);
+    });
 }

@@ -23,7 +23,7 @@ std = ["aiq/std", "crossbeam-utils/std"]
 stream = ["dep:futures-core"]
 
 [dependencies]
-aiq = { version = "0.1.0-alpha.3", default-features = false, features = ["wait-queue"] }
+aiq = { version = "0.1.0-alpha.4", default-features = false, features = ["wait-queue"] }
 crossbeam-utils = { version = "0.8", default-features = false }
 futures-core = { version = "0.3", optional = true }
 spmc-waker = "0.1.0-alpha.1"
@@ -68,7 +68,7 @@ name = "compat_tokio"
 required-features = ["blocking", "compat-tokio"]
 
 [lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)', 'cfg(miri_racy)'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)', 'cfg(racy_test)'] }
 unsafe_op_in_unsafe_fn = "deny"
 
 [lints.clippy]

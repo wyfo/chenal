@@ -6,17 +6,12 @@ use core::mem::MaybeUninit;
 pub(crate) use core::*;
 #[cfg(not(loom))]
 #[cfg(feature = "blocking")]
-pub(crate) use std::thread;
+pub(crate) use std::{thread, thread_local};
 
 #[cfg(loom)]
 pub(crate) use loom::*;
 
 pub(crate) mod sync {
-    #[cfg(not(loom))]
-    pub(crate) use alloc::sync::*;
-
-    #[cfg(loom)]
-    pub(crate) use loom::sync::*;
     pub(crate) mod atomic {
         #[cfg(not(loom))]
         pub(crate) use core::sync::atomic::*;
@@ -55,14 +50,7 @@ pub(crate) mod sync {
                 seqcst_fence(order);
             }
 
-            pub(crate) fn swap(&self, x: usize, order: Ordering) -> usize {
-                seqcst_fence(order);
-                let res = self.0.swap(x, order);
-                seqcst_fence(order);
-                res
-            }
-
-            pub(crate) fn compare_exchange_weak(
+            pub(crate) fn compare_exchange(
                 &self,
                 current: usize,
                 new: usize,
@@ -75,6 +63,16 @@ pub(crate) mod sync {
                     seqcst_fence(success);
                 }
                 res
+            }
+
+            pub(crate) fn compare_exchange_weak(
+                &self,
+                current: usize,
+                new: usize,
+                success: Ordering,
+                failure: Ordering,
+            ) -> Result<usize, usize> {
+                self.compare_exchange(current, new, success, failure)
             }
 
             pub(crate) fn fetch_add(&self, val: usize, order: Ordering) -> usize {
@@ -113,27 +111,6 @@ pub(crate) mod sync {
                     seqcst_fence(set_order);
                 };
                 res
-            }
-        }
-
-        #[cfg(loom)]
-        #[derive(Debug, Default)]
-        pub struct AtomicBool(loom::sync::atomic::AtomicBool);
-
-        #[cfg(loom)]
-        impl AtomicBool {
-            pub(crate) fn new(x: bool) -> Self {
-                Self(loom::sync::atomic::AtomicBool::new(x))
-            }
-
-            pub(crate) fn load(&self, order: Ordering) -> bool {
-                seqcst_fence(order);
-                self.0.load(order)
-            }
-
-            pub(crate) fn store(&self, x: bool, order: Ordering) {
-                self.0.store(x, order);
-                seqcst_fence(order);
             }
         }
     }
@@ -178,59 +155,54 @@ impl<T> UnsafeCellExt<T> for cell::UnsafeCell<T> {
     }
 }
 
-pub(crate) trait RacyUnsafeCellExt<T> {
-    fn new_racy() -> Self;
-    unsafe fn write_racy(&self, t: T);
-    unsafe fn read_racy(&self) -> MaybeUninit<T>;
+#[cfg(not(racy_test))]
+pub(crate) struct RacyCell<T>(core::cell::UnsafeCell<MaybeUninit<T>>);
+#[cfg(racy_test)]
+pub(crate) struct RacyCell<T> {
+    atomic: sync::atomic::AtomicPtr<()>,
+    _phantom: core::marker::PhantomData<T>,
 }
 
-impl<T> RacyUnsafeCellExt<T> for core::cell::UnsafeCell<MaybeUninit<T>> {
-    #[cfg(not(miri_racy))]
-    fn new_racy() -> Self {
-        Self::new(MaybeUninit::uninit())
+impl<T> RacyCell<T> {
+    #[cfg(not(racy_test))]
+    pub(crate) fn new() -> Self {
+        Self(core::cell::UnsafeCell::new(MaybeUninit::uninit()))
     }
 
-    #[cfg(miri_racy)]
-    fn new_racy() -> Self {
+    #[cfg(racy_test)]
+    pub(crate) fn new() -> Self {
         const { assert!(size_of::<T>() == size_of::<*mut ()>()) };
-        let mut t = MaybeUninit::uninit();
-        let ptr = ptr::from_mut(&mut t).cast::<*mut ()>();
-        unsafe { ptr.write(ptr::null_mut()) };
-        Self::new(t)
+        Self {
+            atomic: Default::default(),
+            _phantom: Default::default(),
+        }
     }
 
-    #[cfg(not(miri_racy))]
-    unsafe fn write_racy(&self, t: T) {
-        use core::sync::atomic::{Ordering::Release, fence};
-        fence(Release);
-        unsafe { (*self.get()).write(t) };
+    #[cfg(not(racy_test))]
+    pub(crate) unsafe fn write_racy(&self, t: T) {
+        sync::atomic::fence(sync::atomic::Ordering::Release);
+        unsafe { (*self.0.get()).write(t) };
     }
 
-    #[cfg(miri_racy)]
-    unsafe fn write_racy(&self, t: T) {
-        use core::{
-            mem::ManuallyDrop,
-            sync::atomic::{AtomicPtr, Ordering::Relaxed},
-        };
-        let t = ManuallyDrop::new(t);
-        let ptr = ptr::from_ref(&t).cast::<*mut ()>();
-        unsafe { (*self.get().cast::<AtomicPtr<()>>()).store(ptr.read(), Relaxed) }
+    #[cfg(racy_test)]
+    pub(crate) unsafe fn write_racy(&self, t: T) {
+        let t = core::mem::ManuallyDrop::new(t);
+        let ptr = core::ptr::from_ref(&t).cast::<*mut ()>();
+        (self.atomic).store(unsafe { ptr.read() }, sync::atomic::Ordering::Relaxed);
     }
 
-    #[cfg(not(miri_racy))]
-    unsafe fn read_racy(&self) -> MaybeUninit<T> {
-        use core::sync::atomic::{Ordering::Acquire, fence};
-        let msg = unsafe { self.get().cast::<MaybeUninit<T>>().read_volatile() };
-        fence(Acquire);
+    #[cfg(not(racy_test))]
+    pub(crate) unsafe fn read_racy(&self) -> MaybeUninit<T> {
+        let msg = unsafe { self.0.get().cast::<MaybeUninit<T>>().read_volatile() };
+        sync::atomic::fence(sync::atomic::Ordering::Acquire);
         msg
     }
 
-    #[cfg(miri_racy)]
-    unsafe fn read_racy(&self) -> MaybeUninit<T> {
-        use core::sync::atomic::{AtomicPtr, Ordering::Relaxed};
+    #[cfg(racy_test)]
+    pub(crate) unsafe fn read_racy(&self) -> MaybeUninit<T> {
         let mut res = MaybeUninit::uninit();
-        let msg = unsafe { (*self.get().cast::<AtomicPtr<()>>()).load(Relaxed) };
-        unsafe { ptr::from_mut(&mut res).cast::<*mut ()>().write(msg) };
+        let msg = self.atomic.load(sync::atomic::Ordering::Relaxed);
+        unsafe { core::ptr::from_mut(&mut res).cast::<*mut ()>().write(msg) };
         res
     }
 }

@@ -37,6 +37,21 @@ jobs:
           TOTAL: 256
           RUNNERS: 8
 
+  loom:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        test: [mpmc_array, mpsc_array, spmc_array, spsc_array]
+    steps:
+      - uses: actions/checkout@v4
+      - name: loom
+        run: cargo test --features blocking --release --test ${{ matrix.test }}
+        env:
+          LOOM_MAX_PREEMPTIONS: 2
+          RUSTFLAGS: --cfg=loom --cfg=racy_test
+
   miri:
     needs: [test, compute-miri-seeds]
     runs-on: ubuntu-latest
@@ -51,5 +66,5 @@ jobs:
       - name: miri
         run: cargo +nightly miri test --tests --all-features
         env:
-          RUSTFLAGS: --cfg=miri_racy
+          RUSTFLAGS: --cfg=racy_test
           MIRIFLAGS: -Zmiri-many-seeds=${{ matrix.seeds }} -Zmiri-compare-exchange-weak-failure-rate=0

@@ -1,12 +1,7 @@
 use core::{
-    cell::UnsafeCell,
     marker::PhantomData,
-    mem::MaybeUninit,
     ops::Deref,
-    sync::atomic::{
-        AtomicUsize,
-        Ordering::{Acquire, Relaxed, SeqCst},
-    },
+    sync::atomic::Ordering::{Acquire, Relaxed, SeqCst},
 };
 
 use aiq::WaitQueue;
@@ -20,7 +15,7 @@ use crate::{
     channel::{BoundedChannel, Chan},
     errors::{SendError, TryAcquireError},
     internal,
-    loom::{AtomicUsizeExt, RacyUnsafeCellExt, UnsafeCellExt},
+    loom::{AtomicUsizeExt, RacyCell, sync::atomic::AtomicUsize},
     sync::{DefaultSyncPrimitives, SyncPrimitives},
 };
 
@@ -58,7 +53,7 @@ impl<C: Capacity, SP: SyncPrimitives> Channel for Array<C, SP> {
 
 impl<C: Capacity, SP: SyncPrimitives> BoundedChannel for Array<C, SP> {}
 
-type Slot<T> = UnsafeCell<MaybeUninit<T>>;
+type Slot<T> = RacyCell<T>;
 
 pub(crate) struct Storage<T, C: Capacity> {
     slots: Slots<Slot<T>, C>,
@@ -78,7 +73,7 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
 
     fn storage<T>(self) -> Self::Storage<T> {
         Storage {
-            slots: Slots::new(self.capacity, |_, _| UnsafeCell::new_racy()),
+            slots: Slots::new(self.capacity, |_, _| RacyCell::new()),
             closed: AtomicUsize::new(0),
         }
     }
@@ -91,7 +86,7 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
         let tail = chan.tx_state.load_mut() & LB;
         let head = chan.rx_state.load_mut() & LB;
         for slot in chan.slots_between(head, tail) {
-            unsafe { slot.with_ref_mut(|m| m.assume_init_drop()) };
+            unsafe { slot.read_racy().assume_init_drop() };
         }
     }
 

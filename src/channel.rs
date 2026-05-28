@@ -1,3 +1,5 @@
+// loom Arc cannot be used in ClosedHandle
+use alloc::sync::Arc;
 use core::{
     fmt,
     marker::PhantomData,
@@ -7,10 +9,7 @@ use core::{
     panic::{RefUnwindSafe, UnwindSafe},
     pin::{Pin, pin},
     ptr::NonNull,
-    sync::atomic::{
-        AtomicUsize,
-        Ordering::{AcqRel, Acquire, Relaxed},
-    },
+    sync::atomic::Ordering::{AcqRel, Acquire, Relaxed},
     task::{Context, Poll, ready},
 };
 
@@ -23,7 +22,7 @@ use crate::{
     backoff::{BackoffStrategy, NoBackoff},
     errors::{AcquireError, RecvError, SendError, TryAcquireError, TryRecvError, TrySendError},
     internal,
-    loom::sync::Arc,
+    loom::sync::atomic::AtomicUsize,
     rc::RefCount,
     waiter::Waiter,
 };
@@ -152,6 +151,8 @@ impl<T, Ch: internal::Channel> Chan<T, Ch> {
 
     fn close(&self) {
         Ch::close(self);
+        // tx_waiter MUST be closed before rx_waiter as tx_waiter
+        // can be used to check if closed in recv
         self.tx_waiter.close();
         self.rx_waiter.close();
         self.close_waiter.close();
@@ -167,7 +168,9 @@ impl<T, Ch: internal::Channel> Chan<T, Ch> {
             Ok(slot) => Ch::write_slot(self, slot, msg)?,
             Err(err) => return Err((err, msg).into()),
         }
-        self.rx_waiter.wake();
+        if Ch::WAKE_RX_AFTER_READ {
+            self.rx_waiter.wake();
+        }
         Ok(())
     }
 
@@ -526,10 +529,7 @@ pub struct CloseHandle<'a>(Arc<dyn Close + 'a>);
 
 impl<'a> CloseHandle<'a> {
     pub(crate) fn new<T: Send + 'a, Ch: Channel>(chan: Arc<Chan<T, Ch>>) -> Self {
-        #[cfg(not(loom))]
-        return Self(chan as _);
-        #[cfg(loom)]
-        unimplemented!("{chan:?}");
+        Self(chan as _)
     }
 
     /// Returns the channel's unique identifier.

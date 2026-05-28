@@ -1,10 +1,7 @@
 use core::{
     mem::MaybeUninit,
     ops::Deref,
-    sync::atomic::{
-        AtomicUsize,
-        Ordering::{Acquire, Relaxed, SeqCst},
-    },
+    sync::atomic::Ordering::{Acquire, Relaxed, SeqCst},
 };
 
 use spmc_waker::SpmcWaker;
@@ -17,7 +14,7 @@ use crate::{
     channel::{BoundedChannel, Chan},
     errors::{SendError, TryAcquireError},
     internal,
-    loom::{AtomicUsizeExt, UnsafeCellExt, cell::UnsafeCell},
+    loom::{AtomicUsizeExt, UnsafeCellExt, cell::UnsafeCell, sync::atomic::AtomicUsize},
 };
 
 /// Bounded SPSC channel implementation.

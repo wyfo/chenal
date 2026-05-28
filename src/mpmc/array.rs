@@ -1,13 +1,8 @@
 use core::{
-    cell::UnsafeCell,
     cmp,
     marker::PhantomData,
-    mem::MaybeUninit,
     ptr::NonNull,
-    sync::atomic::{
-        AtomicUsize,
-        Ordering::{Acquire, Relaxed, Release, SeqCst},
-    },
+    sync::atomic::Ordering::{Acquire, Relaxed, Release, SeqCst},
 };
 
 use aiq::WaitQueue;
@@ -20,7 +15,7 @@ use crate::{
     channel::{BoundedChannel, Chan},
     errors::{SendError, TryAcquireError},
     internal,
-    loom::{AtomicUsizeExt, RacyUnsafeCellExt, UnsafeCellExt},
+    loom::{AtomicUsizeExt, RacyCell, sync::atomic::AtomicUsize},
     sync::{DefaultSyncPrimitives, SyncPrimitives},
 };
 
@@ -70,7 +65,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> BoundedChan
 }
 
 pub(crate) struct Slot<T> {
-    msg: UnsafeCell<MaybeUninit<T>>,
+    msg: RacyCell<T>,
     stamp: AtomicUsize,
 }
 
@@ -81,7 +76,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
 
     fn storage<T>(self) -> Self::Storage<T> {
         Slots::new(self.capacity, |i, lap| Slot {
-            msg: UnsafeCell::new_racy(),
+            msg: RacyCell::new(),
             stamp: AtomicUsize::new(i.wrapping_sub(lap) & LB),
         })
     }
@@ -95,7 +90,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
         let tail = chan.tx_state.load_mut() & LB & !chan.closed_flag();
         let head = chan.rx_state.load_mut();
         for slot in chan.slots_between(head, tail) {
-            unsafe { slot.msg.with_ref_mut(|m| m.assume_init_drop()) };
+            unsafe { slot.msg.read_racy().assume_init_drop() };
         }
     }
 
@@ -112,6 +107,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
     type TxSlot<T> = (NonNull<Slot<T>>, usize);
     type TxWaiter = WaitQueue<SP>;
     type TxRefCount = AtomicUsize;
+    const WAKE_RX_AFTER_READ: bool = false;
 
     fn tx_init_state<T>(storage: &Self::Storage<T>) -> Self::TxAtomicState<T> {
         let tail = 0;
@@ -185,13 +181,18 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
 
     #[inline(always)]
     fn write_slot<T>(
-        _chan: &Chan<T, Self>,
+        chan: &Chan<T, Self>,
         (slot, tail): Self::TxSlot<T>,
         msg: T,
     ) -> Result<(), SendError<T>> {
         unsafe { slot.as_ref().msg.write_racy(msg) };
         let order = if UNBOUNDED_BACKOFF { Release } else { SeqCst };
         unsafe { slot.as_ref().stamp.store(tail, order) };
+        if UNBOUNDED_BACKOFF {
+            chan.rx_waiter.notify_one();
+        } else {
+            chan.rx_waiter.notify_all();
+        }
         Ok(())
     }
 
@@ -253,9 +254,13 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
                             TryAcquireError::Closed
                         });
                     }
+                    #[cfg(not(loom))]
                     let backoff = crossbeam_utils::Backoff::new();
                     while slot.stamp.load(Acquire) != *head {
+                        #[cfg(not(loom))]
                         backoff.snooze();
+                        #[cfg(loom)]
+                        loom::hint::spin_loop();
                     }
                 } else {
                     if chan.tx_waiter.is_closed() {

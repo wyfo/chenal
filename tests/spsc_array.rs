@@ -9,7 +9,10 @@ use chenal::{
     errors::{RecvError, SendError, TryRecvError, TrySendError},
     spsc::Array,
 };
+#[cfg(not(loom))]
 use futures::executor::block_on;
+#[cfg(loom)]
+use loom::future::block_on;
 use rstest::rstest;
 
 struct Usize<const USIZE: usize>;
@@ -244,7 +247,7 @@ fn drop_buffered(#[case] offset: usize, #[case] msgs: usize) {
 #[should_panic]
 fn invalid_capacity<const BS: usize>(#[case] capacity: usize, #[case] bs: Usize<BS>) {
     let _ = bs;
-    <Array<BS>>::new(capacity).channel::<()>();
+    <Array<BS>>::new(capacity).channel::<usize>();
 }
 
 // Capacity is reduced by partially read block.
@@ -259,6 +262,46 @@ fn partial_block_withholds_capacity<const BS: usize>(#[case] bs: Usize<BS>, #[ca
     }
     assert_eq!(rx.try_recv(), Ok(0));
     assert_eq!(tx.try_send(4).is_err(), reduced);
+}
+
+#[cfg(loom)]
+#[rstest]
+fn loom_spsc<const BS: usize>(
+    #[values(false, true)] sync: bool,
+    #[values(ONE, TWO)] bs: Usize<BS>,
+) {
+    let _ = bs;
+    loom::model(move || {
+        let (mut tx, mut rx) = <Array<BS>>::new(2).channel();
+        loom::thread::spawn(move || {
+            tx.send2(0, sync).unwrap();
+            tx.send2(1, sync).unwrap();
+            tx.send2(2, sync).unwrap();
+        });
+        let values = (0..3).map(|_| rx.recv2(sync).unwrap()).collect::<Vec<_>>();
+        assert_eq!(values, [0, 1, 2]);
+    });
+}
+
+#[cfg(loom)]
+#[rstest]
+fn loom_concurrent_close<const BS: usize>(
+    #[values(false, true)] sync: bool,
+    #[values(ONE, TWO)] bs: Usize<BS>,
+) {
+    let _ = bs;
+    loom::model(move || {
+        let (mut tx, mut rx) = <Array<BS>>::new(2).channel();
+        let close_handle = tx.close_handle();
+        let sent = loom::thread::spawn(move || tx.send2(0, sync));
+        let received = loom::thread::spawn(move || rx.recv2(sync));
+        loom::thread::spawn(move || close_handle.close());
+        let (sent, received) = (sent.join().unwrap(), received.join().unwrap());
+        assert!(matches!(
+            (sent, received),
+            (Ok(()), Ok(0)) | (Err(SendError(0)), Err(RecvError))
+        ));
+    });
 }
 
 // Reading the last slot of a block wakes the blocked sender.
