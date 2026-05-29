@@ -17,36 +17,36 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	mov dword ptr [rsp + 12], ecx
 	mov rax, r12
 	jmp .LBB9_2
-.LBB9_8:
+.LBB9_11:
 	lea rdx, [r12 + 1]
 	mov rax, r12
 	lock cmpxchg	qword ptr [r15 + 128], rdx
-	je .LBB9_10
+	je .LBB9_13
 .LBB9_2:
 	mov r12, rax
-	mov r13, qword ptr [r15 + 432]
-	and r13, rax
+	mov rbx, qword ptr [r15 + 432]
+	and rbx, rax
 	mov rax, qword ptr [r15 + 416]
-	mov rcx, r13
+	mov rcx, rbx
 	shl rcx, 4
-	lea rbx, [rax + rcx]
+	lea r13, [rax + rcx]
 	mov rax, qword ptr [rax + rcx + 8]
 	cmp rax, r12
 	jne .LBB9_3
-.LBB9_6:
-	mov rcx, qword ptr [rbx]
+.LBB9_9:
+	mov rcx, qword ptr [r13]
 	#MEMBARRIER
 	mov rax, qword ptr [r15 + 424]
 	dec rax
-	cmp r13, rax
-	jne .LBB9_8
+	cmp rbx, rax
+	jne .LBB9_11
 	mov rdx, qword ptr [r15 + 432]
 	or rdx, r12
 	inc rdx
 	mov rax, r12
 	lock cmpxchg	qword ptr [r15 + 128], rdx
 	jne .LBB9_2
-	jmp .LBB9_10
+	jmp .LBB9_13
 .LBB9_3:
 	mov rax, qword ptr [r15 + 128]
 	cmp rax, r12
@@ -59,35 +59,34 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	and edx, eax
 	cmp r12, rdx
 	je .LBB9_24
-	mov rax, qword ptr [rbx + 8]
-	cmp rax, r12
-	je .LBB9_6
 	xor ebp, ebp
-	jmp .LBB9_12
-.LBB9_17:
-	inc ebp
-.LBB9_18:
-	mov rax, qword ptr [rbx + 8]
-	cmp rax, r12
-	je .LBB9_6
-.LBB9_12:
+.LBB9_6:
 	cmp ebp, 6
-	ja .LBB9_15
+	ja .LBB9_14
 	mov eax, 1
-.LBB9_14:
+.LBB9_8:
 	pause
 	mov edx, eax
 	mov ecx, ebp
 	shr edx, cl
 	inc eax
 	test edx, edx
-	je .LBB9_14
-	jmp .LBB9_17
-.LBB9_15:
+	je .LBB9_8
+	jmp .LBB9_16
+.LBB9_14:
 	call r14
 	cmp ebp, 11
-	jb .LBB9_17
-	jmp .LBB9_18
+	jae .LBB9_17
+.LBB9_16:
+	inc ebp
+.LBB9_17:
+	mov rax, qword ptr [r15 + 128]
+	cmp rax, r12
+	jne .LBB9_2
+	mov rax, qword ptr [r13 + 8]
+	cmp rax, r12
+	jne .LBB9_6
+	jmp .LBB9_9
 .LBB9_24:
 	mov eax, eax
 	cmp r12, rax
@@ -120,7 +119,7 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	call aiq::wait_queue::Wait<Q,SP>::poll_wait
 	mov ecx, eax
 	jmp .LBB9_1
-.LBB9_10:
+.LBB9_13:
 	mov rdx, qword ptr [rsp]
 	mov qword ptr [rdx + 8], rcx
 	xor eax, eax

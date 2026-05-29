@@ -19,7 +19,7 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	jne .LBB6_3
 	mov rax, qword ptr [r15 + 8]
 	cmp rax, r14
-	je .LBB6_12
+	je .LBB6_11
 .LBB6_3:
 	mov rax, qword ptr [r12]
 	mov rcx, qword ptr [r12 + 416]
@@ -31,31 +31,31 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	jne .LBB6_4
 	mov eax, eax
 	cmp r14, rax
-	jne .LBB6_18
+	jne .LBB6_17
 	test bpl, 1
-	jne .LBB6_27
+	jne .LBB6_26
 	mov rcx, qword ptr [r12 + 384]
 	cmp rcx, 2
-	jne .LBB6_21
+	jne .LBB6_20
 	mov rbx, qword ptr [rdx]
 	cmp rbx, qword ptr [r12 + 360]
 	mov rbp, qword ptr [rdx + 8]
 	sete al
 	cmp qword ptr [r12 + 352], rbp
-	jne .LBB6_23
+	jne .LBB6_22
 	test al, al
-	je .LBB6_25
-.LBB6_26:
+	je .LBB6_24
+.LBB6_25:
 	xor eax, eax
 	xor ecx, ecx
 	xchg qword ptr [r12 + 384], rcx
 	mov bpl, 1
 	jmp .LBB6_1
-.LBB6_23:
+.LBB6_22:
 	xor eax, eax
 	test al, al
-	jne .LBB6_26
-.LBB6_25:
+	jne .LBB6_25
+.LBB6_24:
 	lea rdi, [r12 + 352]
 	mov qword ptr [rsp + 16], rdx
 	call r13
@@ -66,8 +66,8 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	mov rdx, qword ptr [rsp + 16]
 	mov qword ptr [r12 + 352], rcx
 	mov qword ptr [r12 + 360], rax
-	jmp .LBB6_26
-.LBB6_21:
+	jmp .LBB6_25
+.LBB6_20:
 	mov rsi, qword ptr [rdx]
 	mov rax, qword ptr [rdx + 8]
 	mov rbp, rdi
@@ -80,33 +80,57 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	xor eax, eax
 	jmp .LBB6_1
 .LBB6_4:
+	xor r13d, r13d
+	mov rbx, qword ptr [rip + std::thread::functions::yield_now@GOTPCREL]
+	jmp .LBB6_5
+.LBB6_9:
+	inc r13d
+.LBB6_10:
 	mov rax, qword ptr [r15 + 8]
 	cmp rax, r14
-	jne .LBB6_5
-.LBB6_12:
+	je .LBB6_11
+.LBB6_5:
+	cmp r13d, 6
+	ja .LBB6_8
+	mov eax, 1
+.LBB6_7:
+	pause
+	mov edx, eax
+	mov ecx, r13d
+	shr edx, cl
+	inc eax
+	test edx, edx
+	je .LBB6_7
+	jmp .LBB6_9
+.LBB6_8:
+	call rbx
+	cmp r13d, 11
+	jb .LBB6_9
+	jmp .LBB6_10
+.LBB6_11:
 	test bpl, 1
-	je .LBB6_13
+	je .LBB6_12
 	mov rax, qword ptr [r12 + 384]
 	cmp rax, 1
-	ja .LBB6_13
+	ja .LBB6_12
 	mov rcx, rax
 	or rcx, 2
 	lock cmpxchg	qword ptr [r12 + 384], rcx
-.LBB6_13:
+.LBB6_12:
 	mov rax, qword ptr [rsp + 8]
 	mov qword ptr [rax + 8], r15
 	mov qword ptr [rax + 16], r14
 	mov qword ptr [rax], 0
-	jmp .LBB6_14
-.LBB6_18:
+	jmp .LBB6_13
+.LBB6_17:
 	xorps xmm0, xmm0
 	mov rax, qword ptr [rsp + 8]
 	movups xmmword ptr [rax], xmm0
-	jmp .LBB6_14
-.LBB6_27:
+	jmp .LBB6_13
+.LBB6_26:
 	mov rax, qword ptr [rsp + 8]
 	mov qword ptr [rax], 1
-.LBB6_14:
+.LBB6_13:
 	add rsp, 24
 	pop rbx
 	pop r12
@@ -115,31 +139,3 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	pop r15
 	pop rbp
 	ret
-.LBB6_5:
-	xor r13d, r13d
-	mov rbx, qword ptr [rip + std::thread::functions::yield_now@GOTPCREL]
-	jmp .LBB6_6
-.LBB6_10:
-	inc r13d
-.LBB6_11:
-	mov rax, qword ptr [r15 + 8]
-	cmp rax, r14
-	je .LBB6_12
-.LBB6_6:
-	cmp r13d, 6
-	ja .LBB6_9
-	mov eax, 1
-.LBB6_8:
-	pause
-	mov edx, eax
-	mov ecx, r13d
-	shr edx, cl
-	inc eax
-	test edx, edx
-	je .LBB6_8
-	jmp .LBB6_10
-.LBB6_9:
-	call rbx
-	cmp r13d, 11
-	jb .LBB6_10
-	jmp .LBB6_11

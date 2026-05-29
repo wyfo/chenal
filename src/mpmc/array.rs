@@ -234,7 +234,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
         backoff: bool,
     ) -> Result<Self::RxSlot<T>, TryAcquireError> {
         let mut backoff = Backoff::<B>::new(backoff);
-        loop {
+        'outer: loop {
             let head_idx = *head & chan.slot_mask();
             let slot = unsafe { chan.get_unchecked(head_idx) };
             let ordering = if UNBOUNDED_BACKOFF { Acquire } else { SeqCst };
@@ -246,8 +246,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
                 }
                 if UNBOUNDED_BACKOFF {
                     let tail = chan.tx_state.load(SeqCst) & LB;
-                    let closed_flag = chan.closed_flag();
-                    if *head == tail & !closed_flag {
+                    if *head == tail & !chan.closed_flag() {
                         return Err(if *head == tail {
                             TryAcquireError::Unavailable
                         } else {
@@ -260,11 +259,21 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
                     let _guard = chan.lock.lock().unwrap();
                     #[cfg(not(loom))]
                     let backoff = crossbeam_utils::Backoff::new();
-                    while slot.stamp.load(Acquire) != *head {
+                    loop {
                         #[cfg(not(loom))]
                         backoff.snooze();
                         #[cfg(loom)]
                         loom::hint::spin_loop();
+                        // Head can advance concurrently and slot.stamp can be
+                        // one lap forward, so it's necessary to reload the head
+                        // to not loop forever
+                        let head_reload = chan.rx_state.load(SeqCst);
+                        if head_reload != *head {
+                            *head = head_reload;
+                            continue 'outer;
+                        } else if slot.stamp.load(Acquire) == *head {
+                            break;
+                        }
                     }
                 } else {
                     if chan.tx_waiter.is_closed() {

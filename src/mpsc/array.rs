@@ -250,13 +250,15 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
             }
             #[cfg(not(loom))]
             let backoff = crossbeam_utils::Backoff::new();
-            while unsafe { slot.as_ref() }.stamp.load(Acquire) != head {
+            loop {
                 #[cfg(not(loom))]
                 backoff.snooze();
                 #[cfg(loom)]
                 loom::hint::spin_loop();
+                if unsafe { slot.as_ref() }.stamp.load(Acquire) == head {
+                    return Ok((slot, head));
+                }
             }
-            return Ok((slot, head));
         }
         if chan.tx_waiter.is_closed() {
             let tail = chan.tx_state.load(SeqCst) & LB;
