@@ -47,7 +47,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: loom
-        run: cargo test --features blocking --release --test ${{ matrix.test }}
+        run: cargo test --features blocking --release --test ${{ matrix.test }} loom_
         env:
           LOOM_MAX_PREEMPTIONS: 2
           RUSTFLAGS: --cfg=loom --cfg=racy_test
