@@ -184,7 +184,6 @@ fn rx_drop_while_send_waiting<const UB: bool>(
 #[rstest]
 fn concurrent_close<const UB: bool>(
     #[values(false, true)] sync: bool,
-
     #[values(FALSE, TRUE)] ub: Bool<UB>,
 ) {
     let _ = ub;
@@ -323,15 +322,12 @@ fn invalid_capacity(#[case] capacity: usize) {
     <Array>::new(capacity).channel::<usize>();
 }
 
-// UB=TRUE is skipped: with multiple receivers, both can simultaneously enter
-// the UB=true rx spin loop on the same slot's stamp, and loom must explore the
-// cross-product of their yields with sender steps, blowing the branch limit.
-// This isn't a correctness issue (the spin is the intended UB=true semantics),
-// and a park-based fallback isn't valid because the stamp store is downgraded
-// to Release with no wake-up ordering guarantee.
 #[cfg(loom)]
 #[rstest]
-fn loom_mpmc<const UB: bool>(#[values(false, true)] sync: bool, #[values(FALSE)] ub: Bool<UB>) {
+fn loom_mpmc<const UB: bool>(
+    #[values(false, true)] sync: bool,
+    #[values(FALSE, TRUE)] ub: Bool<UB>,
+) {
     let _ = ub;
     loom::model(move || {
         let (tx, rx) = <Array<_, UB>>::new(2).channel::<usize>();

@@ -123,6 +123,12 @@ pub(crate) struct Chan<T, Ch: internal::Channel> {
     tx_cnt: Ch::TxRefCount,
     rx_cnt: Ch::RxRefCount,
     close_waiter: aiq::WaitQueue,
+    // In miri/loom MPMC tests with unbounded backoff, several receiver
+    // might be blocked in a backoff loop, with the scheduler jumping
+    // from one to another without ever running the sender to unblock
+    // them. Use a global lock to fix the issue.
+    #[cfg(any(all(miri, feature = "std"), loom))]
+    pub(crate) lock: crate::loom::sync::Mutex<()>,
 }
 
 unsafe impl<T: Send, Ch: internal::Channel> Send for Chan<T, Ch> {}
@@ -142,6 +148,8 @@ impl<T, Ch: internal::Channel> Chan<T, Ch> {
             tx_cnt: RefCount::one(),
             rx_cnt: RefCount::one(),
             close_waiter: Default::default(),
+            #[cfg(any(all(miri, feature = "std"), loom))]
+            lock: crate::loom::sync::Mutex::new(()),
         }
     }
 

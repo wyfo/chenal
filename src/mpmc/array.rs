@@ -254,6 +254,10 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
                             TryAcquireError::Closed
                         });
                     }
+                    #[cfg(all(miri, not(feature = "std")))]
+                    panic!("this miri test requires feature \"std\"");
+                    #[cfg(any(all(miri, feature = "std"), loom))]
+                    let _guard = chan.lock.lock().unwrap();
                     #[cfg(not(loom))]
                     let backoff = crossbeam_utils::Backoff::new();
                     while slot.stamp.load(Acquire) != *head {

@@ -13,7 +13,7 @@ jobs:
       matrix:
         features: [--no-default-features, --all-features]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: rustfmt
         run: cargo fmt -- --check --config "unstable_features=true,imports_granularity=Crate,group_imports=StdExternalCrate,format_code_in_doc_comments=true"
       - name: clippy
@@ -34,8 +34,8 @@ jobs:
       - id: compute-seeds
         run: python3 -c "print('seeds=' + str([f'{i}..{i+$TOTAL//$RUNNERS}' for i in range(0,$TOTAL,$TOTAL//$RUNNERS)]))" >> $GITHUB_OUTPUT
         env:
-          TOTAL: 256
-          RUNNERS: 4
+          TOTAL: 2048
+          RUNNERS: 16
 
   loom:
     needs: test
@@ -45,7 +45,7 @@ jobs:
       matrix:
         test: [mpmc_array, mpsc_array, spmc_array, spsc_array]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: loom
         run: cargo test --features blocking --release --test ${{ matrix.test }} loom_
         env:
@@ -61,7 +61,7 @@ jobs:
         test: [mpmc_array, mpsc_array, spmc_array, spsc_array]
         seeds: ${{ fromJson(needs.compute-miri-seeds.outputs.seeds) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: install miri
         run: rustup install nightly && rustup +nightly component add miri
       - name: miri

@@ -12,6 +12,11 @@ pub(crate) use std::{thread, thread_local};
 pub(crate) use loom::*;
 
 pub(crate) mod sync {
+    #[cfg(loom)]
+    pub(crate) use loom::sync::*;
+
+    #[cfg(all(miri, feature = "std"))]
+    pub(crate) use super::std::sync::*;
     pub(crate) mod atomic {
         #[cfg(not(loom))]
         pub(crate) use core::sync::atomic::*;
