@@ -6,13 +6,13 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	push r12
 	push rbx
 	sub rsp, 104
-	mov qword ptr [rsp + 64], rcx
+	mov qword ptr [rsp + 16], rcx
 	mov r12, rdx
 	mov r15, rsi
 	mov qword ptr [rsp], rdi
-	mov qword ptr [rsp + 16], 0
+	mov qword ptr [rsp + 24], 0
 	xor ecx, ecx
-	mov rbp, qword ptr [rip + std::thread::functions::yield_now@GOTPCREL]
+	mov r14, qword ptr [rip + std::thread::functions::yield_now@GOTPCREL]
 .LBB9_1:
 	mov dword ptr [rsp + 12], ecx
 	mov rax, r12
@@ -24,10 +24,10 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	je .LBB9_10
 .LBB9_2:
 	mov r12, rax
-	mov r14, qword ptr [r15 + 432]
-	and r14, rax
+	mov r13, qword ptr [r15 + 432]
+	and r13, rax
 	mov rax, qword ptr [r15 + 416]
-	mov rcx, r14
+	mov rcx, r13
 	shl rcx, 4
 	lea rbx, [rax + rcx]
 	mov rax, qword ptr [rax + rcx + 8]
@@ -38,7 +38,7 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	#MEMBARRIER
 	mov rax, qword ptr [r15 + 424]
 	dec rax
-	cmp r14, rax
+	cmp r13, rax
 	jne .LBB9_8
 	mov rdx, qword ptr [r15 + 432]
 	or rdx, r12
@@ -62,30 +62,30 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	mov rax, qword ptr [rbx + 8]
 	cmp rax, r12
 	je .LBB9_6
-	xor r13d, r13d
+	xor ebp, ebp
 	jmp .LBB9_12
 .LBB9_17:
-	inc r13d
+	inc ebp
 .LBB9_18:
 	mov rax, qword ptr [rbx + 8]
 	cmp rax, r12
 	je .LBB9_6
 .LBB9_12:
-	cmp r13d, 6
+	cmp ebp, 6
 	ja .LBB9_15
 	mov eax, 1
 .LBB9_14:
 	pause
 	mov edx, eax
-	mov ecx, r13d
+	mov ecx, ebp
 	shr edx, cl
 	inc eax
 	test edx, edx
 	je .LBB9_14
 	jmp .LBB9_17
 .LBB9_15:
-	call rbp
-	cmp r13d, 11
+	call r14
+	cmp ebp, 11
 	jb .LBB9_17
 	jmp .LBB9_18
 .LBB9_24:
@@ -94,49 +94,38 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	jne .LBB9_25
 	test byte ptr [rsp + 12], 1
 	je .LBB9_31
-	mov rdi, qword ptr [rsp + 64]
+	mov rdi, qword ptr [rsp + 16]
 	call qword ptr [rip + chenal::blocking::Parker::park@GOTPCREL]
 	xor ecx, ecx
 	cmp al, 2
 	je .LBB9_1
-	jmp .LBB9_40
+	jmp .LBB9_37
 .LBB9_31:
-	cmp qword ptr [rsp + 16], 0
+	cmp qword ptr [rsp + 24], 0
 	jne .LBB9_33
-	lea rax, [rsp + 24]
+	lea rax, [rsp + 32]
 	xorps xmm0, xmm0
 	movups xmmword ptr [rax], xmm0
 	mov qword ptr [rax + 16], 0
 	lea rax, [r15 + 304]
-	mov qword ptr [rsp + 16], rax
-	mov byte ptr [rsp + 56], 2
+	mov qword ptr [rsp + 24], rax
+	mov byte ptr [rsp + 64], 2
 .LBB9_33:
 	mov rax, qword ptr [rip + chenal::blocking::PARK_WAKER@GOTPCREL]
 	mov qword ptr [rsp + 72], rax
 	mov qword ptr [rsp + 80], rax
 	mov qword ptr [rsp + 88], 0
-	lea rdi, [rsp + 16]
+	lea rdi, [rsp + 24]
 	lea rsi, [rsp + 72]
 	call aiq::wait_queue::Wait<Q,SP>::poll_wait
-	mov cl, 1
-	test al, al
-	jne .LBB9_1
-	cmp qword ptr [rsp + 16], 0
-	jne .LBB9_36
-.LBB9_37:
-	mov qword ptr [rsp + 16], 0
-	xor ecx, ecx
+	mov ecx, eax
 	jmp .LBB9_1
-.LBB9_36:
-	lea rdi, [rsp + 16]
-	call <chenal::waiter::OptionCold<T> as core::ops::drop::Drop>::drop::drop_cold
-	jmp .LBB9_37
 .LBB9_10:
 	mov rdx, qword ptr [rsp]
 	mov qword ptr [rdx + 8], rcx
 	xor eax, eax
 	mov byte ptr [rdx], al
-	cmp qword ptr [rsp + 16], 0
+	cmp qword ptr [rsp + 24], 0
 	jne .LBB9_28
 .LBB9_29:
 	add rsp, 104
@@ -151,28 +140,28 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	mov rdx, qword ptr [rsp]
 	mov byte ptr [rdx + 1], 0
 	jmp .LBB9_26
-.LBB9_40:
+.LBB9_37:
 	mov rdx, qword ptr [rsp]
 	mov byte ptr [rdx + 1], al
 .LBB9_26:
 	mov al, 1
 	mov byte ptr [rdx], al
-	cmp qword ptr [rsp + 16], 0
+	cmp qword ptr [rsp + 24], 0
 	je .LBB9_29
 .LBB9_28:
-	lea rdi, [rsp + 16]
+	lea rdi, [rsp + 24]
 	call <chenal::waiter::OptionCold<T> as core::ops::drop::Drop>::drop::drop_cold
 	jmp .LBB9_29
-	jmp .LBB9_20
-.LBB9_20:
-	mov rbx, rax
-	cmp qword ptr [rsp + 16], 0
-	jne .LBB9_21
+	jmp .LBB9_22
 .LBB9_22:
+	mov rbx, rax
+	cmp qword ptr [rsp + 24], 0
+	jne .LBB9_19
+.LBB9_23:
 	mov rdi, rbx
 	call _Unwind_Resume@PLT
-.LBB9_21:
-	lea rdi, [rsp + 16]
+.LBB9_19:
+	lea rdi, [rsp + 24]
 	call <chenal::waiter::OptionCold<T> as core::ops::drop::Drop>::drop::drop_cold
-	jmp .LBB9_22
+	jmp .LBB9_23
 	call qword ptr [rip + core::panicking::panic_in_cleanup@GOTPCREL]

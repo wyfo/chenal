@@ -47,11 +47,8 @@ impl<SP: SyncPrimitives> Waiter for WaitQueue<SP> {
             wait.set(Some(self.wait()).into());
         }
         let some_wait = wait.as_mut().as_pin_mut().unwrap();
-        if some_wait.poll(&mut Context::from_waker(waker)).is_ready() {
-            wait.set(None.into());
-            return false;
-        }
-        true
+        let cx = &mut Context::from_waker(waker);
+        some_wait.poll_wait(cx, true).is_pending()
     }
     unsafe fn unregister(&self) {}
     #[inline(always)]

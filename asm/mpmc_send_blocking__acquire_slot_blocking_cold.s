@@ -74,7 +74,7 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	mov rcx, r13
 	mov r10, r12
 	je .LBB9_1
-	jmp .LBB9_30
+	jmp .LBB9_27
 .LBB9_21:
 	mov r12, r10
 	mov r13, rcx
@@ -95,23 +95,10 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	lea rdi, [rsp + 8]
 	lea rsi, [rsp + 56]
 	call aiq::wait_queue::Wait<Q,SP>::poll_wait
-	mov dl, 1
-	test al, al
+	mov edx, eax
 	mov rcx, r13
 	mov r10, r12
-	jne .LBB9_1
-	cmp qword ptr [rsp + 8], 0
-	jne .LBB9_26
-.LBB9_27:
-	mov qword ptr [rsp + 8], 0
-	xor edx, edx
 	jmp .LBB9_1
-.LBB9_26:
-	lea rdi, [rsp + 8]
-	call <chenal::waiter::OptionCold<T> as core::ops::drop::Drop>::drop::drop_cold
-	mov r10, r12
-	mov rcx, r13
-	jmp .LBB9_27
 .LBB9_8:
 	shl rsi, 4
 	add rsi, qword ptr [r14 + 416]
@@ -137,7 +124,7 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	lea rdi, [rsp + 8]
 	call <chenal::waiter::OptionCold<T> as core::ops::drop::Drop>::drop::drop_cold
 	jmp .LBB9_19
-.LBB9_30:
+.LBB9_27:
 	mov byte ptr [rbx + 8], al
 	mov qword ptr [rbx], 0
 	cmp qword ptr [rsp + 8], 0
@@ -145,11 +132,11 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	jmp .LBB9_18
 	mov rbx, rax
 	cmp qword ptr [rsp + 8], 0
-	jne .LBB9_13
+	jne .LBB9_12
 .LBB9_14:
 	mov rdi, rbx
 	call _Unwind_Resume@PLT
-.LBB9_13:
+.LBB9_12:
 	lea rdi, [rsp + 8]
 	call <chenal::waiter::OptionCold<T> as core::ops::drop::Drop>::drop::drop_cold
 	jmp .LBB9_14

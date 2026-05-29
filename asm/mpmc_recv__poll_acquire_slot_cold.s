@@ -7,15 +7,14 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	push rbx
 	sub rsp, 72
 	mov r13, rcx
-	mov qword ptr [rsp + 16], rsi
+	mov qword ptr [rsp + 24], rsi
 	mov r12, rdi
+	mov qword ptr [rsp + 32], rdx
 	lea rax, [rdx + 8]
-	mov qword ptr [rsp + 8], rax
+	mov qword ptr [rsp + 16], rax
 	mov rbx, qword ptr [rip + std::thread::functions::yield_now@GOTPCREL]
-	xor r15d, r15d
-	mov qword ptr [rsp + 24], rdx
+	mov qword ptr [rsp + 8], 0
 .LBB9_1:
-	mov qword ptr [rsp + 32], r15
 	mov rax, r13
 	jmp .LBB9_2
 .LBB9_8:
@@ -93,40 +92,29 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	mov edx, eax
 	cmp r13, rdx
 	sete cl
-	mov rax, qword ptr [rsp + 32]
+	mov rax, qword ptr [rsp + 8]
 	not al
 	test al, cl
 	je .LBB9_19
-	mov r14, qword ptr [rsp + 24]
-	cmp qword ptr [r14], 0
+	mov rdi, qword ptr [rsp + 32]
+	cmp qword ptr [rdi], 0
 	jne .LBB9_23
 	lea rax, [r12 + 304]
-	mov qword ptr [r14], rax
-	mov rax, qword ptr [rsp + 8]
+	mov qword ptr [rdi], rax
+	mov rax, qword ptr [rsp + 16]
 	xorps xmm0, xmm0
 	movups xmmword ptr [rax], xmm0
 	mov qword ptr [rax + 16], 0
-	mov byte ptr [r14 + 40], 2
+	mov byte ptr [rdi + 40], 2
 .LBB9_23:
-	mov rax, qword ptr [rsp + 16]
+	mov rax, qword ptr [rsp + 24]
 	mov qword ptr [rsp + 40], rax
 	mov qword ptr [rsp + 48], rax
 	mov qword ptr [rsp + 56], 0
-	mov rdi, r14
 	lea rsi, [rsp + 40]
 	call aiq::wait_queue::Wait<Q,SP>::poll_wait
-	mov r15d, eax
-	test al, al
-	jne .LBB9_1
-	cmp qword ptr [r14], 0
-	jne .LBB9_25
-.LBB9_26:
-	mov qword ptr [r14], 0
+	mov qword ptr [rsp + 8], rax
 	jmp .LBB9_1
-.LBB9_25:
-	mov rdi, r14
-	call <chenal::waiter::OptionCold<T> as core::ops::drop::Drop>::drop::drop_cold
-	jmp .LBB9_26
 .LBB9_10:
 	xor eax, eax
 .LBB9_20:
@@ -144,6 +132,3 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	sete al
 	inc rax
 	jmp .LBB9_20
-	mov qword ptr [r14], 0
-	mov rdi, rax
-	call _Unwind_Resume@PLT
