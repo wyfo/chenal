@@ -58,13 +58,14 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
+        test: [mpmc_array, mpsc_array, spmc_array, spsc_array]
         seeds: ${{ fromJson(needs.compute-miri-seeds.outputs.seeds) }}
     steps:
       - uses: actions/checkout@v4
       - name: install miri
         run: rustup install nightly && rustup +nightly component add miri
       - name: miri
-        run: cargo +nightly miri test --tests --all-features
+        run: cargo +nightly miri test --all-features --test ${{ matrix.test }}
         env:
           RUSTFLAGS: --cfg=racy_test
           MIRIFLAGS: -Zmiri-many-seeds=${{ matrix.seeds }} -Zmiri-compare-exchange-weak-failure-rate=0
