@@ -6,80 +6,82 @@ cd "$SCRIPT_DIR"
 
 MODE="${1:-}"
 if [[ "$MODE" == "clean" ]]; then
-    rm -f ./*.err
+    find . -name '*.err' -delete
     echo "cleaned .err files"
     exit 0
 fi
 
-FUNCTIONS=(
-    mpmc_recv
-    mpmc_recv::poll_acquire_slot_cold
-    mpmc_recv_blocking
-    mpmc_recv_blocking::acquire_slot_blocking_cold
-    mpmc_send
-    mpmc_send::poll_acquire_slot_cold
-    mpmc_send_blocking
-    mpmc_send_blocking::acquire_slot_blocking_cold
-    mpsc_recv
-    mpsc_recv::poll_acquire_slot_cold
-    mpsc_recv_blocking
-    mpsc_recv_blocking::acquire_slot_blocking_cold
-    mpsc_send
-    mpsc_send::poll_acquire_slot_cold
-    mpsc_send_blocking
-    mpsc_send_blocking::acquire_slot_blocking_cold
-    spmc_recv
-    spmc_recv::poll_acquire_slot_cold
-    spmc_recv_blocking
-    spmc_recv_blocking::acquire_slot_blocking_cold
-    spmc_send
-    spmc_send::poll_acquire_slot_cold
-    spmc_send_blocking
-    spmc_send_blocking::acquire_slot_blocking_cold
-    spsc_recv
-    spsc_recv::poll_acquire_slot_cold
-    spsc_recv_blocking
-    spsc_recv_blocking::acquire_slot_blocking_cold
-    spsc_send
-    spsc_send::poll_acquire_slot_cold
-    spsc_send_blocking
-    spsc_send_blocking::acquire_slot_blocking_cold
+# arch label : rust target triple : extra rustflags
+# +lse on aarch64 emits inline cas/casal instead of the __aarch64_cas8_* outline-atomics calls
+ARCHES=(
+    "x86_64:x86_64-unknown-linux-gnu:"
+    "aarch64:aarch64-unknown-linux-gnu:-C target-feature=+lse"
+)
+
+FAMILIES=(mpmc mpsc spmc spsc)
+
+# base function name : cold-variant function name
+ENTRIES=(
+    "recv:poll_acquire_slot_cold"
+    "recv_blocking:acquire_slot_blocking_cold"
+    "send:poll_acquire_slot_cold"
+    "send_blocking:acquire_slot_blocking_cold"
 )
 
 PASS=0
 FAIL=0
 
-for entry in "${FUNCTIONS[@]}"; do
-    if [[ "$entry" == *:* ]]; then
-        cfg="${entry%%:*}"
-        fn="${entry##*:}"
-    else
-        cfg="$entry"
-        fn="$entry"
-    fi
+# check_unit <arch> <target> <extra_flags> <family> <cfg> <fn> <name>
+#   cfg  - the --cfg flag value (e.g. mpmc_recv)
+#   fn   - the symbol passed to `cargo asm`
+#   name - reference file base name within <arch>/<family>/
+check_unit() {
+    local arch="$1" target="$2" extra="$3" family="$4" cfg="$5" fn="$6" name="$7"
+    local label="$arch/$family/$name"
 
-    actual=$(RUSTFLAGS="--cfg $cfg" cargo asm --lib --target x86_64-unknown-linux-gnu --simplify "$fn" 2>/dev/null)
-    asm_file="${entry//::/__}.s"
+    local actual
+    actual=$(RUSTFLAGS="--cfg $cfg $extra" cargo asm --lib --target "$target" --simplify "$fn" 2>/dev/null)
+
+    local asm_file="$arch/$family/$name.s"
 
     if [[ "$MODE" == "regenerate" ]]; then
+        mkdir -p "$(dirname "$asm_file")"
         rm -f "$asm_file.err"
         printf '%s\n' "$actual" > "$asm_file"
-        echo "updated: $entry"
-    else
-        if [[ ! -f "$asm_file" ]]; then
-            echo "MISSING ref: $asm_file (run with 'regenerate' to generate)"
-            FAIL=$((FAIL + 1))
-            continue
-        fi
-        if diff -u "$asm_file" <(printf '%s\n' "$actual") > /dev/null 2>&1; then
-            echo "ok: $entry"
-            PASS=$((PASS + 1))
-        else
-            echo "FAIL: $entry  (see $entry.s.err)"
-            printf '%s\n' "$actual" > "$asm_file.err"
-            FAIL=$((FAIL + 1))
-        fi
+        echo "updated: $label"
+        return
     fi
+
+    if [[ ! -f "$asm_file" ]]; then
+        echo "MISSING ref: $asm_file (run with 'regenerate' to generate)"
+        FAIL=$((FAIL + 1))
+        return
+    fi
+    if diff -u "$asm_file" <(printf '%s\n' "$actual") > /dev/null 2>&1; then
+        echo "ok: $label"
+        PASS=$((PASS + 1))
+    else
+        echo "FAIL: $label  (see $asm_file.err)"
+        printf '%s\n' "$actual" > "$asm_file.err"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
+for arch_entry in "${ARCHES[@]}"; do
+    IFS=: read -r arch target extra <<< "$arch_entry"
+
+    for family in "${FAMILIES[@]}"; do
+        for entry in "${ENTRIES[@]}"; do
+            base="${entry%%:*}"
+            cold="${entry##*:}"
+            cfg="${family}_${base}"
+
+            # hot path: the function itself
+            check_unit "$arch" "$target" "$extra" "$family" "$cfg" "$cfg" "$base"
+            # cold path: the spilled slow-path helper
+            check_unit "$arch" "$target" "$extra" "$family" "$cfg" "$cold" "${base}__${cold}"
+        done
+    done
 done
 
 echo ""
