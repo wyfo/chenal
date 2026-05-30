@@ -20,7 +20,7 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	ldar x9, [x9]
 	cbz x9, .LBB6_6
 	tbnz w9, #0, .LBB6_6
-	ldar x9, [x1]
+	ldr x9, [x1]
 	ldr x10, [x1, #432]
 	sub x10, x22, x10, lsr #1
 	and w9, w9, w10

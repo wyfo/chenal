@@ -103,7 +103,8 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
     }
 
     fn close<T>(chan: &Chan<T, Self>) {
-        chan.tx_state.fetch_or(chan.closed_flag(), SeqCst);
+        let ordering = if UNBOUNDED_BACKOFF { SeqCst } else { Relaxed };
+        chan.tx_state.fetch_or(chan.closed_flag(), ordering);
     }
 
     fn is_closed<T>(chan: &Chan<T, Self>) -> bool {
@@ -138,8 +139,9 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
         if tail == max_tail || tail_idx >= chan.capacity() - 1 {
             return Err(state);
         }
+        let ordering = if UNBOUNDED_BACKOFF { SeqCst } else { Relaxed };
         chan.tx_state
-            .compare_exchange_weak(state, state + 1, SeqCst, Relaxed)?;
+            .compare_exchange_weak(state, state + 1, ordering, Relaxed)?;
         let slot = unsafe { chan.get_unchecked(tail_idx) }.into();
         Ok((slot, tail))
     }
@@ -161,7 +163,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
             let tail = *state & LB;
             let max_tail = *state >> HB_SHIFT;
             if max_tail == tail {
-                let state_reload = chan.tx_state.load(SeqCst);
+                let state_reload = chan.tx_state.load(Relaxed);
                 if state_reload != *state {
                     *state = state_reload;
                     continue;
@@ -176,7 +178,8 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
             if backoff.backoff(state, || chan.tx_state.load(Relaxed)) {
                 continue;
             }
-            match (chan.tx_state).compare_exchange_weak(*state, next_state, SeqCst, SeqCst) {
+            let ordering = if UNBOUNDED_BACKOFF { SeqCst } else { Relaxed };
+            match (chan.tx_state).compare_exchange_weak(*state, next_state, ordering, SeqCst) {
                 Ok(_) => {
                     let slot = unsafe { chan.get_unchecked(tail_idx) }.into();
                     return Ok((slot, tail));
@@ -261,7 +264,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
             }
         }
         if chan.tx_waiter.is_closed() {
-            let tail = chan.tx_state.load(SeqCst) & LB;
+            let tail = chan.tx_state.load(Relaxed) & LB;
             debug_assert!(tail & chan.closed_flag() != 0);
             if head == tail & !chan.closed_flag() {
                 return Err(TryAcquireError::Closed);

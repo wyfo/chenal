@@ -17,7 +17,7 @@ mpsc_send_blocking:
 	b.hs .LBB12_5
 	add x11, x9, #1
 	add x12, x19, #128
-	casal x2, x11, [x12]
+	cas x2, x11, [x12]
 	cmp x2, x9
 	b.ne .LBB12_5
 	ldr x9, [x19, #544]

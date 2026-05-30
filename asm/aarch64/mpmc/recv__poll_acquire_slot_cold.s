@@ -18,8 +18,7 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	mov x8, x23
 	b .LBB9_3
 .LBB9_2:
-	add x8, x22, #128
-	ldar x8, [x8]
+	ldr x8, [x22, #128]
 	cmp x8, x23
 	b.eq .LBB9_7
 .LBB9_3:
@@ -60,7 +59,7 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	ldar x8, [x8]
 	cbz x8, .LBB9_10
 	tbnz w8, #0, .LBB9_10
-	ldar x8, [x22]
+	ldr x8, [x22]
 	ldr x9, [x22, #456]
 	sub x9, x24, x9, lsr #1
 	and w8, w8, w9

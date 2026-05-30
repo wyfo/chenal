@@ -1,7 +1,7 @@
 [[repos]]
 repo = "https://github.com/crate-ci/typos"
 rev = "v1.45.1"
-hooks = [{ id = "typos" }]
+hooks = [{ id = "typos", exclude = "^asm/" }]
 
 [[repos]]
 repo = "local"

@@ -34,7 +34,7 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	ldar x8, [x8]
 	cbz x8, .LBB6_7
 	tbnz w8, #0, .LBB6_7
-	ldar x8, [x22]
+	ldr x8, [x22]
 	ldr x9, [x22, #432]
 	sub x9, x25, x9, lsr #1
 	and w8, w8, w9

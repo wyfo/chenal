@@ -10,55 +10,56 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	add x19, x1, #256
 	mov w20, #2
 .LBB9_1:
-	mov x13, x4
+	ldr x9, [x1, #432]
+	mov x14, x4
 	b .LBB9_3
 .LBB9_2:
-	mov x13, x10
-	casal x13, x11, [x1]
-	cmp x13, x10
-	b.eq .LBB9_14
+	mov x14, x11
+	casal x14, x12, [x1]
+	cmp x14, x11
+	b.eq .LBB9_16
 .LBB9_3:
-	ldp x12, x11, [x1, #424]
-	mov x10, x13
-	and x9, x11, x13
+	ldr x12, [x1, #424]
+	and x10, x9, x14
+	mov x11, x14
 	sub x12, x12, #1
-	cmp x9, x12
+	cmp x10, x12
 	cset w12, hi
 	csinv w12, w12, wzr, hs
-	and w12, w12, #0xff
+	ands w12, w12, #0xff
 	b.eq .LBB9_6
 	cmp w12, #255
-	b.ne .LBB9_15
-	add x11, x10, #1
-	mov w12, w10
-	cmp x12, x10, lsr #32
-	b.ne .LBB9_2
-	b .LBB9_7
+	b.ne .LBB9_14
+	add x12, x11, #1
+	mov w13, w11
+	cmp x13, x11, lsr #32
+	b.eq .LBB9_7
+	b .LBB9_2
 .LBB9_6:
-	orr w11, w10, w11
-	and x12, x10, #0xffffffff00000000
-	add w11, w11, #1
-	orr x11, x11, x12
-	mov w12, w10
-	cmp x12, x10, lsr #32
+	orr w12, w11, w9
+	and x13, x11, #0xffffffff00000000
+	add w12, w12, #1
+	orr x12, x12, x13
+	mov w13, w11
+	cmp x13, x11, lsr #32
 	b.ne .LBB9_2
 .LBB9_7:
-	ldar x13, [x1]
-	cmp x13, x10
+	ldr x14, [x1]
+	cmp x14, x11
 	b.ne .LBB9_3
-	add x13, x1, #128
-	ldar x13, [x13]
-	ldr w14, [x1, #432]
-	add w13, w13, w14
-	add w13, w13, #1
-	cmp x13, x12
+	add x9, x1, #128
+	ldar x14, [x9]
+	ldr x9, [x1, #432]
+	add w14, w14, w9
+	add w14, w14, #1
+	cmp x14, x13
 	b.eq .LBB9_10
-	bfi x11, x13, #32, #32
+	bfi x12, x14, #32, #32
 	b .LBB9_2
 .LBB9_10:
 	tbnz w8, #0, .LBB9_17
 	ldr x8, [x3]
-	mov x21, x10
+	mov x21, x11
 	mov x22, x1
 	mov x23, x0
 	cbnz x8, .LBB9_13
@@ -80,14 +81,8 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	mov x4, x21
 	b .LBB9_1
 .LBB9_14:
-	ldr x8, [x1, #416]
-	str xzr, [x0]
-	add x8, x8, x9, lsl #4
-	stp x8, x12, [x0, #8]
-	b .LBB9_16
-.LBB9_15:
 	stp xzr, xzr, [x0]
-.LBB9_16:
+.LBB9_15:
 	ldp x20, x19, [sp, #96]
 	ldr x25, [sp, #48]
 	ldp x22, x21, [sp, #80]
@@ -95,6 +90,12 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	ldp x29, x30, [sp, #32]
 	add sp, sp, #112
 	ret
+.LBB9_16:
+	ldr x8, [x1, #416]
+	str xzr, [x0]
+	add x8, x8, x10, lsl #4
+	stp x8, x13, [x0, #8]
+	b .LBB9_15
 	mov w8, #1
 	str x8, [x0]
-	b .LBB9_16
+	b .LBB9_15
