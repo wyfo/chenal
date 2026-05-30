@@ -166,7 +166,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
                 }
                 next_state = (next_state & LB) | (max_tail << HB_SHIFT);
             }
-            if backoff.backoff(state, || chan.rx_state.load(Relaxed)) {
+            if backoff.backoff(state, || chan.tx_state.load(Relaxed)) {
                 continue;
             }
             match (chan.tx_state).compare_exchange_weak(*state, next_state, SeqCst, SeqCst) {
