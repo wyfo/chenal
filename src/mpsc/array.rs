@@ -3,7 +3,7 @@ use core::{
     marker::PhantomData,
     mem::MaybeUninit,
     ptr::NonNull,
-    sync::atomic::Ordering::{Acquire, Relaxed, Release, SeqCst},
+    sync::atomic::Ordering::{AcqRel, Acquire, Relaxed, Release, SeqCst},
 };
 
 use aiq::WaitQueue;
@@ -103,7 +103,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
     }
 
     fn close<T>(chan: &Chan<T, Self>) {
-        let ordering = if UNBOUNDED_BACKOFF { SeqCst } else { Relaxed };
+        let ordering = if UNBOUNDED_BACKOFF { SeqCst } else { AcqRel };
         chan.tx_state.fetch_or(chan.closed_flag(), ordering);
     }
 
@@ -139,7 +139,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
         if tail == max_tail || tail_idx >= chan.capacity() - 1 {
             return Err(state);
         }
-        let ordering = if UNBOUNDED_BACKOFF { SeqCst } else { Relaxed };
+        let ordering = if UNBOUNDED_BACKOFF { SeqCst } else { AcqRel };
         chan.tx_state
             .compare_exchange_weak(state, state + 1, ordering, Relaxed)?;
         let slot = unsafe { chan.get_unchecked(tail_idx) }.into();
@@ -178,8 +178,8 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
             if backoff.backoff(state, || chan.tx_state.load(Relaxed)) {
                 continue;
             }
-            let ordering = if UNBOUNDED_BACKOFF { SeqCst } else { Relaxed };
-            match (chan.tx_state).compare_exchange_weak(*state, next_state, ordering, SeqCst) {
+            let ordering = if UNBOUNDED_BACKOFF { SeqCst } else { AcqRel };
+            match (chan.tx_state).compare_exchange_weak(*state, next_state, ordering, Relaxed) {
                 Ok(_) => {
                     let slot = unsafe { chan.get_unchecked(tail_idx) }.into();
                     return Ok((slot, tail));
