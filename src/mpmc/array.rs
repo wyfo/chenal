@@ -2,7 +2,10 @@ use core::{
     cmp,
     marker::PhantomData,
     ptr::NonNull,
-    sync::atomic::Ordering::{AcqRel, Acquire, Relaxed, Release, SeqCst},
+    sync::atomic::{
+        Ordering::{AcqRel, Acquire, Relaxed, Release, SeqCst},
+        fence,
+    },
 };
 
 use aiq::WaitQueue;
@@ -132,7 +135,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
         if tail == max_tail || tail_idx >= chan.capacity() - 1 {
             return Err(state);
         }
-        let ordering = if UNBOUNDED_BACKOFF { SeqCst } else { AcqRel };
+        let ordering = if UNBOUNDED_BACKOFF { SeqCst } else { Relaxed };
         chan.tx_state
             .compare_exchange_weak(state, state + 1, ordering, Relaxed)?;
         let slot = unsafe { chan.get_unchecked(tail_idx) }.into();
@@ -166,12 +169,15 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
                 if max_tail == tail {
                     return Err(TryAcquireError::Unavailable);
                 }
+                if !UNBOUNDED_BACKOFF {
+                    fence(Release);
+                }
                 next_state = (next_state & LB) | (max_tail << HB_SHIFT);
             }
             if backoff.backoff(state, || chan.tx_state.load(Relaxed)) {
                 continue;
             }
-            let ordering = if UNBOUNDED_BACKOFF { SeqCst } else { AcqRel };
+            let ordering = if UNBOUNDED_BACKOFF { SeqCst } else { Relaxed };
             match (chan.tx_state).compare_exchange_weak(*state, next_state, ordering, Relaxed) {
                 Ok(_) => {
                     let slot = unsafe { chan.get_unchecked(tail_idx) }.into();
@@ -188,6 +194,9 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
         (slot, tail): Self::TxSlot<T>,
         msg: T,
     ) -> Result<(), SendError<T>> {
+        if !UNBOUNDED_BACKOFF {
+            fence(Acquire);
+        }
         unsafe { slot.as_ref().msg.write_racy(msg) };
         let order = if UNBOUNDED_BACKOFF { Release } else { SeqCst };
         unsafe { slot.as_ref().stamp.store(tail, order) };
