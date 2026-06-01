@@ -349,7 +349,7 @@ fn invalid_capacity<const BS: usize>(#[case] capacity: usize, #[case] bs: Usize<
 #[case(TWO, true)]
 fn partial_block_withholds_capacity<const BS: usize>(#[case] bs: Usize<BS>, #[case] reduced: bool) {
     let _ = bs;
-    let (tx, rx) = <Array<BS>>::new(4).channel();
+    let (tx, rx) = <Array<BS>>::new(4).channel::<usize>();
     for i in 0..4 {
         tx.try_send(i).unwrap();
     }
@@ -361,7 +361,7 @@ fn partial_block_withholds_capacity<const BS: usize>(#[case] bs: Usize<BS>, #[ca
 #[rstest]
 fn block_completion_wakes_senders<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
     let _ = ub;
-    let (tx, rx) = <Array<2, _, UB>>::new(2).channel();
+    let (tx, rx) = <Array<2, _, UB>>::new(2).channel::<usize>();
     tx.try_send(0).unwrap();
     tx.try_send(1).unwrap();
     let mut send1 = pin!(tx.send(2));

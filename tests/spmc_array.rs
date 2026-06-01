@@ -281,7 +281,7 @@ fn invalid_capacity<const BS: usize>(#[case] capacity: usize, #[case] bs: Usize<
 #[case(TWO, true)]
 fn partial_block_withholds_capacity<const BS: usize>(#[case] bs: Usize<BS>, #[case] reduced: bool) {
     let _ = bs;
-    let (mut tx, rx) = <Array<BS>>::new(4).channel();
+    let (mut tx, rx) = <Array<BS>>::new(4).channel::<usize>();
     for i in 0..4 {
         tx.try_send(i).unwrap();
     }
@@ -292,7 +292,7 @@ fn partial_block_withholds_capacity<const BS: usize>(#[case] bs: Usize<BS>, #[ca
 // Reading the last slot of a block wakes the blocked sender.
 #[test]
 fn block_completion_wakes_sender() {
-    let (mut tx, rx) = <Array<2>>::new(2).channel();
+    let (mut tx, rx) = <Array<2>>::new(2).channel::<usize>();
     tx.try_send(0).unwrap();
     tx.try_send(1).unwrap();
     let mut send = pin!(tx.send(2));
