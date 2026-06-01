@@ -37,7 +37,7 @@ mpsc_recv:
 	ldr x2, [x1]
 	add x0, sp, #8
 	add x1, x19, #128
-	bl chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold
+	bl chenal::channel::Chan<T,Ch,SP>::poll_acquire_slot_cold
 	ldr w8, [sp, #8]
 	tbz w8, #0, .LBB7_6
 	mov w0, #2

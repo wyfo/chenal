@@ -6,9 +6,9 @@ spsc_recv_blocking:
 	mov rax, rdx
 	shr rax, 32
 	cmp edx, eax
-	je .LBB2_4
+	je .LBB3_4
 	mov qword ptr [rsp + 8], rdx
-.LBB2_2:
+.LBB3_2:
 	mov rdx, qword ptr [rsp + 8]
 	mov rsi, qword ptr [rbx + 536]
 	mov rax, rsi
@@ -17,39 +17,39 @@ spsc_recv_blocking:
 	mov rdi, qword ptr [rbx + 528]
 	dec rdi
 	cmp rax, rdi
-	jne .LBB2_6
+	jne .LBB3_6
 	or esi, edx
 	inc esi
 	movabs rdi, -4294967296
 	and rdi, rdx
 	or rdi, rsi
-	jmp .LBB2_7
-.LBB2_6:
+	jmp .LBB3_7
+.LBB3_6:
 	inc rdx
 	mov rdi, rdx
-.LBB2_7:
+.LBB3_7:
 	mov rdx, qword ptr [rcx + 8*rax]
 	xchg qword ptr [rbx + 256], rdi
 	mov rsi, qword ptr [rbx + 464]
 	cmp rsi, 1
-	jbe .LBB2_8
+	jbe .LBB3_8
 	xor eax, eax
 	add rsp, 48
 	pop rbx
 	ret
-.LBB2_4:
+.LBB3_4:
 	lea rsi, [rbx + 128]
 	mov dword ptr [rsp + 40], 1000000000
 	mov rdi, rsp
 	lea rcx, [rsp + 16]
-	call chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold
+	call chenal::channel::Chan<T,Ch,SP>::acquire_slot_blocking_cold
 	cmp byte ptr [rsp], 1
-	jne .LBB2_2
+	jne .LBB3_2
 	mov eax, 1
 	add rsp, 48
 	pop rbx
 	ret
-.LBB2_8:
+.LBB3_8:
 	add rbx, 432
 	mov rdi, rbx
 	mov rbx, rdx

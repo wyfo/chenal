@@ -1,4 +1,4 @@
-chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
+chenal::channel::Chan<T,Ch,SP>::poll_acquire_slot_cold:
 	push rbp
 	push r15
 	push r14

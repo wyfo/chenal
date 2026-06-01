@@ -53,7 +53,7 @@ spmc_send:
 .LBB6_10:
 	mov rsi, qword ptr [rax]
 	lea rdi, [rbx + 128]
-	call chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold
+	call chenal::channel::Chan<T,Ch,SP>::poll_acquire_slot_cold
 	cmp rax, 2
 	je .LBB6_8
 	test rax, rax
@@ -69,7 +69,7 @@ spmc_send:
 .LBB6_15:
 	lea rdi, [rbx + 128]
 	mov rsi, rdx
-	call qword ptr [rip + <chenal::spmc::array::Array<C,SP> as chenal::internal::Channel>::write_slot::handle_closed@GOTPCREL]
+	call qword ptr [rip + <chenal::spmc::array::Array<C> as chenal::internal::Channel>::write_slot::handle_closed@GOTPCREL]
 	test al, 1
 	je .LBB6_6
 	mov r14, rdx

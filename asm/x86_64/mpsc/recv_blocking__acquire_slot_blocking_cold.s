@@ -1,4 +1,4 @@
-chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
+chenal::channel::Chan<T,Ch,SP>::acquire_slot_blocking_cold:
 	push rbp
 	push r15
 	push r14

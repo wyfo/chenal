@@ -6,6 +6,7 @@ use crate::{
     channel::Chan,
     errors::{SendError, TryAcquireError},
     rc::RefCount,
+    sync::SyncPrimitives,
     waiter::Waiter,
 };
 
@@ -51,47 +52,51 @@ pub(crate) trait Channel: Sized + 'static {
     type Storage<T>;
     fn storage<T>(self) -> Self::Storage<T>;
     fn capacity<T>(storage: &Self::Storage<T>) -> Option<usize>;
-    fn drop_storage<T>(chan: &mut Chan<T, Self>);
-    fn close<T>(chan: &Chan<T, Self>);
-    fn is_closed<T>(chan: &Chan<T, Self>) -> bool;
+    fn drop_storage<T, SP: SyncPrimitives>(chan: &mut Chan<T, Self, SP>);
+    fn close<T, SP: SyncPrimitives>(chan: &Chan<T, Self, SP>);
+    fn is_closed<T, SP: SyncPrimitives>(chan: &Chan<T, Self, SP>) -> bool;
     type TxAtomicState<T>;
     type TxState<T>;
     type TxSlot<T>;
-    type TxWaiter: Waiter;
+    type TxWaiter<SP: SyncPrimitives>: Waiter<SP>;
     type TxRefCount: RefCount;
     fn tx_init_state<T>(storage: &Self::Storage<T>) -> Self::TxAtomicState<T>;
-    fn is_full<T>(chan: &Chan<T, Self>) -> bool;
-    fn tx_acquire_slot<T>(chan: &Chan<T, Self>) -> Result<Self::TxSlot<T>, Self::TxState<T>>;
-    fn tx_acquire_slot_cold<T, B: BackoffStrategy>(
-        chan: &Chan<T, Self>,
+    fn is_full<T, SP: SyncPrimitives>(chan: &Chan<T, Self, SP>) -> bool;
+    fn tx_acquire_slot<T, SP: SyncPrimitives>(
+        chan: &Chan<T, Self, SP>,
+    ) -> Result<Self::TxSlot<T>, Self::TxState<T>>;
+    fn tx_acquire_slot_cold<T, B: BackoffStrategy, SP: SyncPrimitives>(
+        chan: &Chan<T, Self, SP>,
         state: &mut Self::TxState<T>,
         backoff: bool,
     ) -> Result<Self::TxSlot<T>, TryAcquireError>;
-    fn write_slot<T>(
-        chan: &Chan<T, Self>,
+    fn write_slot<T, SP: SyncPrimitives>(
+        chan: &Chan<T, Self, SP>,
         slot: Self::TxSlot<T>,
         msg: T,
     ) -> Result<(), SendError<T>>;
     type RxAtomicState<T>;
     type RxState<T>;
     type RxSlot<T>;
-    type RxWaiter: Waiter;
+    type RxWaiter<SP: SyncPrimitives>: Waiter<SP>;
     type RxRefCount: RefCount;
     fn rx_init_state<T>(storage: &Self::Storage<T>) -> Self::RxAtomicState<T>;
-    fn is_empty<T>(chan: &Chan<T, Self>) -> bool;
-    fn rx_acquire_slot<T>(chan: &Chan<T, Self>) -> Result<Self::RxSlot<T>, Self::RxState<T>>;
-    fn rx_acquire_slot_cold<T, B: BackoffStrategy>(
-        chan: &Chan<T, Self>,
+    fn is_empty<T, SP: SyncPrimitives>(chan: &Chan<T, Self, SP>) -> bool;
+    fn rx_acquire_slot<T, SP: SyncPrimitives>(
+        chan: &Chan<T, Self, SP>,
+    ) -> Result<Self::RxSlot<T>, Self::RxState<T>>;
+    fn rx_acquire_slot_cold<T, B: BackoffStrategy, SP: SyncPrimitives>(
+        chan: &Chan<T, Self, SP>,
         state: &mut Self::RxState<T>,
         backoff: bool,
     ) -> Result<Self::RxSlot<T>, TryAcquireError>;
-    fn read_slot<T>(chan: &Chan<T, Self>, slot: Self::RxSlot<T>) -> T;
+    fn read_slot<T, SP: SyncPrimitives>(chan: &Chan<T, Self, SP>, slot: Self::RxSlot<T>) -> T;
 }
 
-pub(crate) trait ChannelHalf<T, Ch: Channel> {
+pub(crate) trait ChannelHalf<T, Ch: Channel, SP: SyncPrimitives> {
     const HALF: crate::channel::Half;
-    fn new(chan: Arc<Chan<T, Ch>>) -> Self;
-    fn chan(&self) -> &Arc<Chan<T, Ch>>;
+    fn new(chan: Arc<Chan<T, Ch, SP>>) -> Self;
+    fn chan(&self) -> &Arc<Chan<T, Ch, SP>>;
     fn raw_clone(&self) -> Self
     where
         Self: Clone,

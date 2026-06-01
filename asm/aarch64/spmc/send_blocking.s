@@ -53,7 +53,7 @@ spmc_send_blocking:
 	add x1, x19, #128
 	add x3, sp, #16
 	str w8, [sp, #40]
-	bl chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold
+	bl chenal::channel::Chan<T,Ch,SP>::acquire_slot_blocking_cold
 	ldrb w8, [sp]
 	mov x1, x20
 	tbz w8, #0, .LBB6_3
@@ -71,6 +71,6 @@ spmc_send_blocking:
 	ret
 	add x0, x19, #128
 	mov x1, x8
-	bl <chenal::spmc::array::Array<C,SP> as chenal::internal::Channel>::write_slot::handle_closed
+	bl <chenal::spmc::array::Array<C> as chenal::internal::Channel>::write_slot::handle_closed
 	tbz w0, #0, .LBB6_7
 	b .LBB6_10

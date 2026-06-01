@@ -7,9 +7,9 @@ spsc_recv_blocking:
 	ldr x2, [x19, #256]
 	mov w8, w2
 	cmp x8, x2, lsr #32
-	b.eq .LBB2_4
+	b.eq .LBB3_4
 	str x2, [sp, #8]
-.LBB2_2:
+.LBB3_2:
 	ldr x8, [sp, #8]
 	ldr x9, [x19, #544]
 	ldr x10, [x19, #536]
@@ -28,29 +28,29 @@ spsc_recv_blocking:
 	add x8, x19, #416
 	ldar x8, [x8]
 	cmp x8, #1
-	b.ls .LBB2_6
+	b.ls .LBB3_6
 	mov x0, xzr
 	ldp x29, x30, [sp, #48]
 	ldr x19, [sp, #64]
 	add sp, sp, #80
 	ret
-.LBB2_4:
+.LBB3_4:
 	mov w8, #51712
 	mov x0, sp
 	add x1, x19, #128
 	movk w8, #15258, lsl #16
 	add x3, sp, #16
 	str w8, [sp, #40]
-	bl chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold
+	bl chenal::channel::Chan<T,Ch,SP>::acquire_slot_blocking_cold
 	ldrb w8, [sp]
 	cmp w8, #1
-	b.ne .LBB2_2
+	b.ne .LBB3_2
 	mov w0, #1
 	ldp x29, x30, [sp, #48]
 	ldr x19, [sp, #64]
 	add sp, sp, #80
 	ret
-.LBB2_6:
+.LBB3_6:
 	add x0, x19, #384
 	mov x19, x1
 	mov x1, x8

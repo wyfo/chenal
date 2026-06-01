@@ -1,5 +1,4 @@
 use core::{
-    marker::PhantomData,
     ops::Deref,
     sync::atomic::Ordering::{Acquire, Relaxed, SeqCst},
 };
@@ -10,13 +9,13 @@ use spmc_waker::SpmcWaker;
 use crate::{
     Channel, MRx, Tx,
     array::{HB_SHIFT, LB, Slots},
-    backoff::{Backoff, BackoffStrategy},
+    backoff::{Backoff, BackoffStrategy, NoBackoff},
     capacity::Capacity,
     channel::{BoundedChannel, Chan},
     errors::{SendError, TryAcquireError},
     internal,
     loom::{AtomicUsizeExt, RacyCell, sync::atomic::AtomicUsize},
-    sync::{DefaultSyncPrimitives, SyncPrimitives},
+    sync::SyncPrimitives,
 };
 
 /// Bounded SPMC channel implementation.
@@ -36,28 +35,23 @@ pub struct Array<
     // However, it would make stale SeqCst loads possible on send, invalidating the
     // synchronization.
     C: Capacity = usize,
-    SP: SyncPrimitives = DefaultSyncPrimitives,
 > {
     capacity: C,
-    sync: PhantomData<SP>,
 }
 
-impl<C: Capacity, SP: SyncPrimitives> Array<C, SP> {
+impl<C: Capacity> Array<C> {
     /// Constructs a new `Array` with the specified capacity.
     pub fn new(capacity: C) -> Self {
-        Self {
-            capacity,
-            sync: PhantomData,
-        }
+        Self { capacity }
     }
 }
 
-impl<C: Capacity, SP: SyncPrimitives> Channel for Array<C, SP> {
-    type TxHalf<T> = Tx<T, Self>;
-    type RxHalf<T> = MRx<T, Self>;
+impl<C: Capacity> Channel for Array<C> {
+    type TxHalf<T, SP: SyncPrimitives> = Tx<T, Self, SP>;
+    type RxHalf<T, SP: SyncPrimitives> = MRx<T, Self, NoBackoff, SP>;
 }
 
-impl<C: Capacity, SP: SyncPrimitives> BoundedChannel for Array<C, SP> {}
+impl<C: Capacity> BoundedChannel for Array<C> {}
 
 type Slot<T> = RacyCell<T>;
 
@@ -74,7 +68,7 @@ impl<T, C: Capacity> Deref for Storage<T, C> {
     }
 }
 
-impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
+impl<C: Capacity> internal::Channel for Array<C> {
     type Storage<T> = Storage<T, C>;
 
     fn storage<T>(self) -> Self::Storage<T> {
@@ -88,7 +82,7 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
         Some(storage.len())
     }
 
-    fn drop_storage<T>(chan: &mut Chan<T, Self>) {
+    fn drop_storage<T, SP: SyncPrimitives>(chan: &mut Chan<T, Self, SP>) {
         let tail = chan.tx_state.load_mut() & LB;
         let head = chan.rx_state.load_mut() & LB;
         for slot in chan.slots_between(head, tail) {
@@ -96,18 +90,18 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
         }
     }
 
-    fn close<T>(chan: &Chan<T, Self>) {
+    fn close<T, SP: SyncPrimitives>(chan: &Chan<T, Self, SP>) {
         let _ = chan.closed.compare_exchange(0, 1, SeqCst, Relaxed);
     }
 
-    fn is_closed<T>(chan: &Chan<T, Self>) -> bool {
+    fn is_closed<T, SP: SyncPrimitives>(chan: &Chan<T, Self, SP>) -> bool {
         chan.closed.load(Relaxed) != 0
     }
 
     type TxAtomicState<T> = AtomicUsize;
     type TxState<T> = usize;
     type TxSlot<T> = usize;
-    type TxWaiter = SpmcWaker;
+    type TxWaiter<SP: SyncPrimitives> = SpmcWaker;
     type TxRefCount = ();
 
     fn tx_init_state<T>(storage: &Self::Storage<T>) -> Self::TxAtomicState<T> {
@@ -116,7 +110,7 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
         AtomicUsize::new(tail | (max_tail << HB_SHIFT))
     }
 
-    fn is_full<T>(chan: &Chan<T, Self>) -> bool {
+    fn is_full<T, SP: SyncPrimitives>(chan: &Chan<T, Self, SP>) -> bool {
         let tail = chan.tx_state.load(Relaxed) & LB;
         let head = chan.rx_state.load(Relaxed) & LB;
         let max_tail = head.wrapping_add(chan.lap()) & LB;
@@ -124,7 +118,9 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
     }
 
     #[inline(always)]
-    fn tx_acquire_slot<T>(chan: &Chan<T, Self>) -> Result<Self::TxSlot<T>, Self::TxState<T>> {
+    fn tx_acquire_slot<T, SP: SyncPrimitives>(
+        chan: &Chan<T, Self, SP>,
+    ) -> Result<Self::TxSlot<T>, Self::TxState<T>> {
         let state = chan.tx_state.load(Relaxed);
         let tail = state & LB;
         let max_tail = state >> HB_SHIFT;
@@ -134,8 +130,8 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
         Ok(state)
     }
 
-    fn tx_acquire_slot_cold<T, B: BackoffStrategy>(
-        chan: &Chan<T, Self>,
+    fn tx_acquire_slot_cold<T, B: BackoffStrategy, SP: SyncPrimitives>(
+        chan: &Chan<T, Self, SP>,
         state: &mut Self::TxState<T>,
         _backoff: bool,
     ) -> Result<Self::TxSlot<T>, TryAcquireError> {
@@ -152,8 +148,8 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
     }
 
     #[inline(always)]
-    fn write_slot<T>(
-        chan: &Chan<T, Self>,
+    fn write_slot<T, SP: SyncPrimitives>(
+        chan: &Chan<T, Self, SP>,
         state: Self::TxSlot<T>,
         msg: T,
     ) -> Result<(), SendError<T>> {
@@ -166,7 +162,7 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
             #[cold]
             #[inline(never)]
             fn handle_closed<C: Capacity, SP: SyncPrimitives, T>(
-                chan: &Chan<T, Array<C, SP>>,
+                chan: &Chan<T, Array<C>, SP>,
                 state: usize,
             ) -> Result<(), SendError<T>> {
                 let new_tail = chan.wrap_around(state & chan.slot_mask(), state, true) & LB;
@@ -190,21 +186,23 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
     type RxAtomicState<T> = AtomicUsize;
     type RxState<T> = usize;
     type RxSlot<T> = T;
-    type RxWaiter = WaitQueue<SP>;
+    type RxWaiter<SP: SyncPrimitives> = WaitQueue<SP>;
     type RxRefCount = AtomicUsize;
 
     fn rx_init_state<T>(_storage: &Self::Storage<T>) -> Self::RxAtomicState<T> {
         AtomicUsize::new(0)
     }
 
-    fn is_empty<T>(chan: &Chan<T, Self>) -> bool {
+    fn is_empty<T, SP: SyncPrimitives>(chan: &Chan<T, Self, SP>) -> bool {
         let head = chan.rx_state.load(Relaxed) & LB;
         let tail = chan.tx_state.load(Relaxed) & LB;
         head == tail
     }
 
     #[inline(always)]
-    fn rx_acquire_slot<T>(chan: &Chan<T, Self>) -> Result<Self::RxSlot<T>, Self::RxState<T>> {
+    fn rx_acquire_slot<T, SP: SyncPrimitives>(
+        chan: &Chan<T, Self, SP>,
+    ) -> Result<Self::RxSlot<T>, Self::RxState<T>> {
         let state = chan.rx_state.load(Acquire);
         let head = state & LB;
         let tail = state >> HB_SHIFT;
@@ -220,8 +218,8 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
             .map(|_| unsafe { msg.assume_init() })
     }
 
-    fn rx_acquire_slot_cold<T, B: BackoffStrategy>(
-        chan: &Chan<T, Self>,
+    fn rx_acquire_slot_cold<T, B: BackoffStrategy, SP: SyncPrimitives>(
+        chan: &Chan<T, Self, SP>,
         state: &mut Self::RxState<T>,
         backoff: bool,
     ) -> Result<Self::RxSlot<T>, TryAcquireError> {
@@ -267,7 +265,7 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
     }
 
     #[inline(always)]
-    fn read_slot<T>(chan: &Chan<T, Self>, msg: Self::RxSlot<T>) -> T {
+    fn read_slot<T, SP: SyncPrimitives>(chan: &Chan<T, Self, SP>, msg: Self::RxSlot<T>) -> T {
         chan.tx_waiter.wake_cold();
         msg
     }

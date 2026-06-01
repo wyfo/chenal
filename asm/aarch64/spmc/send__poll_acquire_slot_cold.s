@@ -1,4 +1,4 @@
-chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
+chenal::channel::Chan<T,Ch,SP>::poll_acquire_slot_cold:
 	stp x29, x30, [sp, #-64]!
 	str x23, [sp, #16]
 	stp x22, x21, [sp, #32]

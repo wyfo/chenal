@@ -43,7 +43,7 @@ mpmc_send_blocking:
 	lea rdi, [rsp + 8]
 	lea rcx, [rsp + 24]
 	mov rdx, rax
-	call chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold
+	call chenal::channel::Chan<T,Ch,SP>::acquire_slot_blocking_cold
 	mov rsi, qword ptr [rsp + 8]
 	test rsi, rsi
 	je .LBB12_4

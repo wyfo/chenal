@@ -10,7 +10,7 @@ use core::{
 use aiq::{WaitQueue, sync::SyncPrimitives, wait_queue::Wait};
 use spmc_waker::SpmcWaker;
 
-pub(crate) trait Waiter: Default + 'static {
+pub(crate) trait Waiter<SP: SyncPrimitives>: Default + 'static {
     type Wait<'a>: Default + Send
     where
         Self: 'a;
@@ -19,7 +19,7 @@ pub(crate) trait Waiter: Default + 'static {
     fn close(&self);
 }
 
-impl Waiter for SpmcWaker {
+impl<SP: SyncPrimitives> Waiter<SP> for SpmcWaker {
     type Wait<'a> = ();
     #[inline(always)]
     unsafe fn register<'a>(&'a self, _wait: Pin<&mut Self::Wait<'a>>, waker: &Waker) -> bool {
@@ -34,7 +34,7 @@ impl Waiter for SpmcWaker {
     }
 }
 
-impl<SP: SyncPrimitives> Waiter for WaitQueue<SP> {
+impl<SP: SyncPrimitives> Waiter<SP> for WaitQueue<SP> {
     type Wait<'a> = OptionCold<Wait<&'a WaitQueue<SP>, SP>>;
     #[inline(always)]
     unsafe fn register<'a>(&'a self, mut wait: Pin<&mut Self::Wait<'a>>, waker: &Waker) -> bool {

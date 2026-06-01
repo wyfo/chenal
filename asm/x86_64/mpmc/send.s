@@ -35,7 +35,7 @@ mpmc_send:
 	mov rdx, qword ptr [rdx]
 	lea rdi, [rsp + 80]
 	mov rcx, rbx
-	call chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold
+	call chenal::channel::Chan<T,Ch,SP>::poll_acquire_slot_cold
 	cmp byte ptr [rsp + 80], 0
 	je .LBB12_6
 	mov eax, 2
@@ -82,7 +82,7 @@ mpmc_send:
 	mov rax, rbx
 	jmp .LBB12_23
 .LBB12_14:
-	call qword ptr [rip + <chenal::channel::SendFuture<T,Ch,B> as core::future::future::Future>::poll::polled_after_completion@GOTPCREL]
+	call qword ptr [rip + <chenal::channel::SendFuture<T,Ch,B,SP> as core::future::future::Future>::poll::polled_after_completion@GOTPCREL]
 	ud2
 	mov r14, rax
 	cmp qword ptr [rsp + 32], 0
