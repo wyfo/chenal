@@ -1,59 +1,63 @@
 mpmc_recv_blocking:
 	push rbx
 	sub rsp, 48
-	mov rsi, qword ptr [rdi]
-	mov rax, qword ptr [rsi + 256]
-	mov rcx, qword ptr [rsi + 560]
-	and rcx, rax
-	mov rdx, qword ptr [rsi + 544]
-	mov rdi, rcx
-	shl rdi, 4
-	mov r8, qword ptr [rdx + rdi + 8]
-	cmp r8, rax
-	jne .LBB14_9
-	add rdx, rdi
-	mov rbx, qword ptr [rdx]
+	mov rbx, qword ptr [rdi]
+	mov rax, qword ptr [rbx + 256]
+	mov rdx, qword ptr [rbx + 560]
+	and rdx, rax
+	mov rcx, qword ptr [rbx + 544]
+	mov rsi, rdx
+	shl rsi, 4
+	mov rdi, qword ptr [rcx + rsi + 8]
+	cmp rdi, rax
+	jne .LBB12_9
+	add rcx, rsi
+	mov rcx, qword ptr [rcx]
 	#MEMBARRIER
-	mov rdx, qword ptr [rsi + 552]
-	dec rdx
-	cmp rcx, rdx
-	jne .LBB14_3
-	mov rcx, qword ptr [rsi + 560]
-	or rcx, rax
-	inc rcx
-	lock cmpxchg	qword ptr [rsi + 256], rcx
-	je .LBB14_5
-.LBB14_9:
+	mov rsi, qword ptr [rbx + 552]
+	dec rsi
+	cmp rdx, rsi
+	jne .LBB12_3
+	mov rdx, qword ptr [rbx + 560]
+	or rdx, rax
+	inc rdx
+	lock cmpxchg	qword ptr [rbx + 256], rdx
+	je .LBB12_5
+.LBB12_9:
 	mov dword ptr [rsp + 40], 1000000000
-	sub rsi, -128
+	lea rsi, [rbx + 128]
 	mov rdi, rsp
 	lea rcx, [rsp + 16]
 	mov rdx, rax
 	call chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold
 	cmp byte ptr [rsp], 1
-	jne .LBB14_8
+	jne .LBB12_6
 	mov eax, 1
 	add rsp, 48
 	pop rbx
 	ret
-.LBB14_3:
-	lea rcx, [rax + 1]
-	lock cmpxchg	qword ptr [rsi + 256], rcx
-	jne .LBB14_9
-.LBB14_5:
-	mov rax, qword ptr [rsi + 384]
-	test al, 1
-	jne .LBB14_6
-.LBB14_7:
-	mov qword ptr [rsp + 8], rbx
-.LBB14_8:
+.LBB12_3:
+	lea rdx, [rax + 1]
+	lock cmpxchg	qword ptr [rbx + 256], rdx
+	jne .LBB12_9
+.LBB12_5:
+	mov qword ptr [rsp + 8], rcx
+.LBB12_6:
 	mov rdx, qword ptr [rsp + 8]
+	mov rax, qword ptr [rbx + 384]
+	test al, 1
+	jne .LBB12_7
 	xor eax, eax
 	add rsp, 48
 	pop rbx
 	ret
-.LBB14_6:
-	add rsi, 384
-	mov rdi, rsi
+.LBB12_7:
+	add rbx, 384
+	mov rdi, rbx
+	mov rbx, rdx
 	call qword ptr [rip + aiq::queue::Queue<T,S,SP>::is_empty_locked@GOTPCREL]
-	jmp .LBB14_7
+	mov rdx, rbx
+	xor eax, eax
+	add rsp, 48
+	pop rbx
+	ret

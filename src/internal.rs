@@ -59,7 +59,7 @@ pub(crate) trait Channel: Sized + 'static {
     type TxSlot<T>;
     type TxWaiter: Waiter;
     type TxRefCount: RefCount;
-    const WAKE_RX_AFTER_WRITE: bool = true;
+    const WAKE_RX_AFTER_READ: bool = true;
     fn tx_init_state<T>(storage: &Self::Storage<T>) -> Self::TxAtomicState<T>;
     fn is_full<T>(chan: &Chan<T, Self>) -> bool;
     fn tx_acquire_slot<T>(chan: &Chan<T, Self>) -> Result<Self::TxSlot<T>, Self::TxState<T>>;

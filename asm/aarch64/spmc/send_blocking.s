@@ -70,7 +70,7 @@ spmc_send_blocking:
 	ret
 	add x0, x19, #128
 	mov x1, x8
-	bl <chenal::spmc::array::Array<_,C,SP> as chenal::internal::Channel>::write_slot::handle_closed
+	bl <chenal::spmc::array::Array<C,SP> as chenal::internal::Channel>::write_slot::handle_closed
 	tbz w0, #0, .LBB6_7
 	mov w0, #1
 	ldp x20, x19, [sp, #64]
