@@ -225,7 +225,7 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
             let head_idx = *state & chan.slot_mask();
             let mut new_state = chan.wrap_around(head_idx, *state, true);
             if head == tail {
-                let state_reload = chan.rx_state.load(SeqCst);
+                let state_reload = chan.rx_state.load(Acquire);
                 if state_reload != *state {
                     *state = state_reload;
                     continue;
@@ -249,7 +249,7 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
             }
             let slot = unsafe { chan.get_unchecked(head_idx) };
             let msg = unsafe { slot.read_racy() };
-            if backoff.backoff(state, || chan.rx_state.load(Relaxed)) {
+            if backoff.backoff(state, || chan.rx_state.load(Acquire)) {
                 continue;
             }
             match (chan.rx_state).compare_exchange_weak(*state, new_state, SeqCst, SeqCst) {
