@@ -1,63 +1,47 @@
 mpmc_recv_blocking:
-	push rbx
-	sub rsp, 48
-	mov rbx, qword ptr [rdi]
-	mov rax, qword ptr [rbx + 256]
-	mov rdx, qword ptr [rbx + 560]
+	sub rsp, 56
+	mov rsi, qword ptr [rdi]
+	mov rax, qword ptr [rsi + 256]
+	mov rdx, qword ptr [rsi + 560]
 	and rdx, rax
-	mov rcx, qword ptr [rbx + 544]
-	mov rsi, rdx
-	shl rsi, 4
-	mov rdi, qword ptr [rcx + rsi + 8]
-	cmp rdi, rax
-	jne .LBB12_9
-	add rcx, rsi
+	mov rcx, qword ptr [rsi + 544]
+	mov rdi, rdx
+	shl rdi, 4
+	mov r8, qword ptr [rcx + rdi + 8]
+	cmp r8, rax
+	jne .LBB12_7
+	add rcx, rdi
 	mov rcx, qword ptr [rcx]
 	#MEMBARRIER
-	mov rsi, qword ptr [rbx + 552]
-	dec rsi
-	cmp rdx, rsi
+	mov rdi, qword ptr [rsi + 552]
+	dec rdi
+	cmp rdx, rdi
 	jne .LBB12_3
-	mov rdx, qword ptr [rbx + 560]
+	mov rdx, qword ptr [rsi + 560]
 	or rdx, rax
 	inc rdx
-	lock cmpxchg	qword ptr [rbx + 256], rdx
+	lock cmpxchg	qword ptr [rsi + 256], rdx
 	je .LBB12_5
-.LBB12_9:
-	mov dword ptr [rsp + 40], 1000000000
-	lea rsi, [rbx + 128]
-	mov rdi, rsp
-	lea rcx, [rsp + 16]
+.LBB12_7:
+	mov dword ptr [rsp + 48], 1000000000
+	sub rsi, -128
+	lea rdi, [rsp + 8]
+	lea rcx, [rsp + 24]
 	mov rdx, rax
 	call chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold
-	cmp byte ptr [rsp], 1
+	cmp byte ptr [rsp + 8], 1
 	jne .LBB12_6
 	mov eax, 1
-	add rsp, 48
-	pop rbx
+	add rsp, 56
 	ret
 .LBB12_3:
 	lea rdx, [rax + 1]
-	lock cmpxchg	qword ptr [rbx + 256], rdx
-	jne .LBB12_9
-.LBB12_5:
-	mov qword ptr [rsp + 8], rcx
-.LBB12_6:
-	mov rdx, qword ptr [rsp + 8]
-	mov rax, qword ptr [rbx + 384]
-	test al, 1
+	lock cmpxchg	qword ptr [rsi + 256], rdx
 	jne .LBB12_7
+.LBB12_5:
+	mov qword ptr [rsp + 16], rcx
+.LBB12_6:
+	mov rdx, qword ptr [rsp + 16]
 	xor eax, eax
-	add rsp, 48
-	pop rbx
-	ret
-.LBB12_7:
-	add rbx, 384
-	mov rdi, rbx
-	mov rbx, rdx
-	call qword ptr [rip + aiq::queue::Queue<T,S,SP>::is_empty_locked@GOTPCREL]
-	mov rdx, rbx
-	xor eax, eax
-	add rsp, 48
-	pop rbx
+	add rsp, 56
 	ret

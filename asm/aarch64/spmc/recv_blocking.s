@@ -1,76 +1,58 @@
 spmc_recv_blocking:
-	sub sp, sp, #80
+	sub sp, sp, #64
 	stp x29, x30, [sp, #48]
-	str x19, [sp, #64]
 	add x29, sp, #48
-	ldr x19, [x0]
-	add x8, x19, #256
-	ldar x8, [x8]
-	mov w9, w8
-	mov x2, x8
-	cmp x9, x8, lsr #32
+	ldr x8, [x0]
+	add x9, x8, #256
+	ldar x9, [x9]
+	mov w10, w9
+	mov x2, x9
+	cmp x10, x9, lsr #32
 	b.eq .LBB12_3
-	ldr x9, [x19, #560]
-	ldr x10, [x19, #544]
-	and x11, x9, x8
-	ldr x9, [x10, x11, lsl #3]
+	ldr x10, [x8, #560]
+	ldr x11, [x8, #544]
+	and x12, x10, x9
+	ldr x10, [x11, x12, lsl #3]
 	dmb ishld
-	ldr x10, [x19, #552]
-	sub x10, x10, #1
-	cmp x11, x10
+	ldr x11, [x8, #552]
+	sub x11, x11, #1
+	cmp x12, x11
 	b.ne .LBB12_5
-	ldr w10, [x19, #560]
-	and x11, x8, #0xffffffff00000000
-	orr w10, w8, w10
-	add w10, w10, #1
-	orr x10, x10, x11
-	add x11, x19, #256
-	casal x2, x10, [x11]
-	cmp x2, x8
+	ldr w11, [x8, #560]
+	and x12, x9, #0xffffffff00000000
+	orr w11, w9, w11
+	add w11, w11, #1
+	orr x11, x11, x12
+	add x12, x8, #256
+	casal x2, x11, [x12]
+	cmp x2, x9
 	b.eq .LBB12_6
 .LBB12_3:
-	mov w8, #51712
+	mov w9, #51712
 	mov x0, sp
-	add x1, x19, #128
-	movk w8, #15258, lsl #16
+	add x1, x8, #128
+	movk w9, #15258, lsl #16
 	add x3, sp, #16
-	str w8, [sp, #40]
+	str w9, [sp, #40]
 	bl chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold
 	ldrb w8, [sp]
 	cmp w8, #1
 	b.ne .LBB12_7
 	mov w0, #1
 	ldp x29, x30, [sp, #48]
-	ldr x19, [sp, #64]
-	add sp, sp, #80
+	add sp, sp, #64
 	ret
 .LBB12_5:
-	add x10, x8, #1
-	add x11, x19, #256
-	casal x2, x10, [x11]
-	cmp x2, x8
+	add x11, x9, #1
+	add x12, x8, #256
+	casal x2, x11, [x12]
+	cmp x2, x9
 	b.ne .LBB12_3
 .LBB12_6:
-	str x9, [sp, #8]
+	str x10, [sp, #8]
 .LBB12_7:
-	add x8, x19, #416
 	ldr x1, [sp, #8]
-	ldar x8, [x8]
-	cmp x8, #1
-	b.ls .LBB12_9
 	mov x0, xzr
 	ldp x29, x30, [sp, #48]
-	ldr x19, [sp, #64]
-	add sp, sp, #80
-	ret
-.LBB12_9:
-	add x0, x19, #384
-	mov x19, x1
-	mov x1, x8
-	bl spmc_waker::SpmcWaker<_,_>::wake_unsync_cold
-	mov x1, x19
-	mov x0, xzr
-	ldp x29, x30, [sp, #48]
-	ldr x19, [sp, #64]
-	add sp, sp, #80
+	add sp, sp, #64
 	ret

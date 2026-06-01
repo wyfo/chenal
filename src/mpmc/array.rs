@@ -204,8 +204,35 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
         unsafe { slot.as_ref().stamp.store(tail, order) };
         if UNBOUNDED_BACKOFF {
             chan.rx_waiter.notify_one();
-        } else {
-            chan.rx_waiter.notify_all();
+        } else if !chan.rx_waiter.is_empty() {
+            // A sender writing to a later slot may have completed and notified
+            // a receiver before this slot has been written. In that case, the
+            // notification might have been lost as the channel would still
+            // appear empty for the waken receiver. That's why if `tx_state` has
+            // already advanced, we wake all receivers to ensure any lost
+            // notification is recovered.
+            #[cold]
+            #[inline(never)]
+            fn notify_receivers<C, const UB: bool, SP, T>(
+                chan: &Chan<T, Array<C, UB, SP>>,
+                tail: usize,
+            ) where
+                C: Capacity,
+                SP: SyncPrimitives,
+            {
+                // A lost notification means that WaitQueue state has been updated.
+                // As `is_empty` synchronizes with `notify_one`/`notify_all`,
+                // `tx_state` modification which occurs before the notification
+                // is visible to a Relaxed load.
+                let state_reload = chan.tx_state.load(Relaxed);
+                let next_tail = chan.wrap_around(tail & chan.slot_mask(), tail, false);
+                if state_reload & LB == next_tail {
+                    chan.rx_waiter.notify_one();
+                } else {
+                    chan.rx_waiter.notify_all();
+                }
+            }
+            notify_receivers(chan, tail);
         }
         Ok(())
     }
