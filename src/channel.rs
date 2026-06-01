@@ -176,7 +176,7 @@ impl<T, Ch: internal::Channel> Chan<T, Ch> {
             Ok(slot) => Ch::write_slot(self, slot, msg)?,
             Err(err) => return Err((err, msg).into()),
         }
-        if Ch::WAKE_RX_AFTER_READ {
+        if Ch::WAKE_RX_AFTER_WRITE {
             self.rx_waiter.wake();
         }
         Ok(())

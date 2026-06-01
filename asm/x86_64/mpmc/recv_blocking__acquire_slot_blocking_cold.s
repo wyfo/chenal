@@ -8,108 +8,108 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	sub rsp, 104
 	mov qword ptr [rsp + 16], rcx
 	mov r12, rdx
-	mov r15, rsi
+	mov r14, rsi
 	mov qword ptr [rsp], rdi
 	mov qword ptr [rsp + 24], 0
 	xor ecx, ecx
-	mov r14, qword ptr [rip + std::thread::functions::yield_now@GOTPCREL]
-.LBB9_1:
+	mov r15, qword ptr [rip + std::thread::functions::yield_now@GOTPCREL]
+.LBB11_1:
 	mov dword ptr [rsp + 12], ecx
 	mov rax, r12
-	jmp .LBB9_2
-.LBB9_11:
-	lea rdx, [r12 + 1]
+	jmp .LBB11_2
+.LBB11_11:
+	lea rcx, [r12 + 1]
 	mov rax, r12
-	lock cmpxchg	qword ptr [r15 + 128], rdx
-	je .LBB9_13
-.LBB9_2:
+	lock cmpxchg	qword ptr [r14 + 128], rcx
+	je .LBB11_13
+.LBB11_2:
 	mov r12, rax
-	mov rbx, qword ptr [r15 + 432]
+	mov rbx, qword ptr [r14 + 432]
 	and rbx, rax
-	mov rax, qword ptr [r15 + 416]
+	mov rax, qword ptr [r14 + 416]
 	mov rcx, rbx
 	shl rcx, 4
 	lea r13, [rax + rcx]
 	mov rax, qword ptr [rax + rcx + 8]
 	cmp rax, r12
-	jne .LBB9_3
-.LBB9_9:
-	mov rcx, qword ptr [r13]
+	jne .LBB11_3
+.LBB11_9:
+	mov r13, qword ptr [r13]
 	#MEMBARRIER
-	mov rax, qword ptr [r15 + 424]
+	mov rax, qword ptr [r14 + 424]
 	dec rax
 	cmp rbx, rax
-	jne .LBB9_11
-	mov rdx, qword ptr [r15 + 432]
-	or rdx, r12
-	inc rdx
+	jne .LBB11_11
+	mov rcx, qword ptr [r14 + 432]
+	or rcx, r12
+	inc rcx
 	mov rax, r12
-	lock cmpxchg	qword ptr [r15 + 128], rdx
-	jne .LBB9_2
-	jmp .LBB9_13
-.LBB9_3:
-	mov rax, qword ptr [r15 + 128]
+	lock cmpxchg	qword ptr [r14 + 128], rcx
+	jne .LBB11_2
+	jmp .LBB11_13
+.LBB11_3:
+	mov rax, qword ptr [r14 + 128]
 	cmp rax, r12
-	jne .LBB9_2
-	mov rax, qword ptr [r15]
-	mov rcx, qword ptr [r15 + 432]
+	jne .LBB11_2
+	mov rax, qword ptr [r14]
+	mov rcx, qword ptr [r14 + 432]
 	shr rcx
 	mov edx, -2
 	sub edx, ecx
 	and edx, eax
 	cmp r12, rdx
-	je .LBB9_24
+	je .LBB11_27
 	xor ebp, ebp
-.LBB9_6:
+.LBB11_6:
 	cmp ebp, 6
-	ja .LBB9_14
+	ja .LBB11_16
 	mov eax, 1
-.LBB9_8:
+.LBB11_8:
 	pause
 	mov edx, eax
 	mov ecx, ebp
 	shr edx, cl
 	inc eax
 	test edx, edx
-	je .LBB9_8
-	jmp .LBB9_16
-.LBB9_14:
-	call r14
+	je .LBB11_8
+	jmp .LBB11_18
+.LBB11_16:
+	call r15
 	cmp ebp, 11
-	jae .LBB9_17
-.LBB9_16:
+	jae .LBB11_19
+.LBB11_18:
 	inc ebp
-.LBB9_17:
-	mov rax, qword ptr [r15 + 128]
+.LBB11_19:
+	mov rax, qword ptr [r14 + 128]
 	cmp rax, r12
-	jne .LBB9_2
+	jne .LBB11_2
 	mov rax, qword ptr [r13 + 8]
 	cmp rax, r12
-	jne .LBB9_6
-	jmp .LBB9_9
-.LBB9_24:
+	jne .LBB11_6
+	jmp .LBB11_9
+.LBB11_27:
 	mov eax, eax
 	cmp r12, rax
-	jne .LBB9_25
+	jne .LBB11_28
 	test byte ptr [rsp + 12], 1
-	je .LBB9_31
+	je .LBB11_34
 	mov rdi, qword ptr [rsp + 16]
 	call qword ptr [rip + chenal::blocking::Parker::park@GOTPCREL]
 	xor ecx, ecx
 	cmp al, 2
-	je .LBB9_1
-	jmp .LBB9_37
-.LBB9_31:
+	je .LBB11_1
+	jmp .LBB11_40
+.LBB11_34:
 	cmp qword ptr [rsp + 24], 0
-	jne .LBB9_33
+	jne .LBB11_36
 	lea rax, [rsp + 32]
 	xorps xmm0, xmm0
 	movups xmmword ptr [rax], xmm0
 	mov qword ptr [rax + 16], 0
-	lea rax, [r15 + 304]
+	lea rax, [r14 + 304]
 	mov qword ptr [rsp + 24], rax
 	mov byte ptr [rsp + 64], 2
-.LBB9_33:
+.LBB11_36:
 	mov rax, qword ptr [rip + chenal::blocking::PARK_WAKER@GOTPCREL]
 	mov qword ptr [rsp + 72], rax
 	mov qword ptr [rsp + 80], rax
@@ -118,15 +118,22 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	lea rsi, [rsp + 72]
 	call aiq::wait_queue::Wait<Q,SP>::poll_wait
 	mov ecx, eax
-	jmp .LBB9_1
-.LBB9_13:
-	mov rdx, qword ptr [rsp]
-	mov qword ptr [rdx + 8], rcx
+	jmp .LBB11_1
+.LBB11_13:
+	mov rax, qword ptr [r14 + 256]
+	test al, 1
+	je .LBB11_15
+	add r14, 256
+	mov rdi, r14
+	call qword ptr [rip + aiq::queue::Queue<T,S,SP>::is_empty_locked@GOTPCREL]
+.LBB11_15:
+	mov rcx, qword ptr [rsp]
+	mov qword ptr [rcx + 8], r13
 	xor eax, eax
-	mov byte ptr [rdx], al
+	mov byte ptr [rcx], al
 	cmp qword ptr [rsp + 24], 0
-	jne .LBB9_28
-.LBB9_29:
+	jne .LBB11_31
+.LBB11_32:
 	add rsp, 104
 	pop rbx
 	pop r12
@@ -135,32 +142,33 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	pop r15
 	pop rbp
 	ret
-.LBB9_25:
-	mov rdx, qword ptr [rsp]
-	mov byte ptr [rdx + 1], 0
-	jmp .LBB9_26
-.LBB9_37:
-	mov rdx, qword ptr [rsp]
-	mov byte ptr [rdx + 1], al
-.LBB9_26:
+.LBB11_28:
+	mov rcx, qword ptr [rsp]
+	mov byte ptr [rcx + 1], 0
+	jmp .LBB11_29
+.LBB11_40:
+	mov rcx, qword ptr [rsp]
+	mov byte ptr [rcx + 1], al
+.LBB11_29:
 	mov al, 1
-	mov byte ptr [rdx], al
+	mov byte ptr [rcx], al
 	cmp qword ptr [rsp + 24], 0
-	je .LBB9_29
-.LBB9_28:
+	je .LBB11_32
+.LBB11_31:
 	lea rdi, [rsp + 24]
 	call <chenal::waiter::OptionCold<T> as core::ops::drop::Drop>::drop::drop_cold
-	jmp .LBB9_29
-	jmp .LBB9_22
-.LBB9_22:
+	jmp .LBB11_32
+	jmp .LBB11_25
+	jmp .LBB11_25
+.LBB11_25:
 	mov rbx, rax
 	cmp qword ptr [rsp + 24], 0
-	jne .LBB9_19
-.LBB9_23:
+	jne .LBB11_21
+.LBB11_26:
 	mov rdi, rbx
 	call _Unwind_Resume@PLT
-.LBB9_19:
+.LBB11_21:
 	lea rdi, [rsp + 24]
 	call <chenal::waiter::OptionCold<T> as core::ops::drop::Drop>::drop::drop_cold
-	jmp .LBB9_23
+	jmp .LBB11_26
 	call qword ptr [rip + core::panicking::panic_in_cleanup@GOTPCREL]

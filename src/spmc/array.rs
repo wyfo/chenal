@@ -1,7 +1,11 @@
 use core::{
     marker::PhantomData,
     ops::Deref,
-    sync::atomic::Ordering::{Acquire, Relaxed, SeqCst},
+    sync::atomic::{
+        Ordering,
+        Ordering::{Acquire, Relaxed, SeqCst},
+        fence,
+    },
 };
 
 use aiq::WaitQueue;
@@ -21,7 +25,11 @@ use crate::{
 
 /// Bounded SPMC channel implementation.
 ///
-/// It allocates an array of `capacity` message slots.
+/// It allocates an array of `capacity` message slots. If `BLOCK_SIZE > 1` the array is fragmented
+/// into blocks, which are released by the receiver only after their last slot has been read.
+/// It means the exact capacity of the channel at one instant has a lower bound to
+/// `capacity - BLOCK_SIZE`. As a consequence, every `recv` operation except the last in a
+/// block uses relaxed synchronization, which is otherwise expensive on `aarch64` architecture.
 ///
 /// # Soundness
 ///
@@ -31,14 +39,28 @@ use crate::{
 ///
 /// Progress on a sound alternative is tracked in
 /// [RFC 3301](https://github.com/rust-lang/rfcs/pull/3301)
-pub struct Array<C: Capacity = usize, SP: SyncPrimitives = DefaultSyncPrimitives> {
+pub struct Array<
+    const BLOCK_SIZE: usize = 1,
+    C: Capacity = usize,
+    SP: SyncPrimitives = DefaultSyncPrimitives,
+> {
     capacity: C,
     sync: PhantomData<SP>,
 }
 
-impl<C: Capacity, SP: SyncPrimitives> Array<C, SP> {
+impl<const BLOCK_SIZE: usize, C: Capacity, SP: SyncPrimitives> Array<BLOCK_SIZE, C, SP> {
     /// Constructs a new `Array` with the specified capacity.
     pub fn new(capacity: C) -> Self {
+        const {
+            assert!(
+                BLOCK_SIZE.is_power_of_two(),
+                "`BLOCK_SIZE` must be a power of 2"
+            );
+        }
+        assert!(
+            capacity.get().is_multiple_of(BLOCK_SIZE),
+            "capacity must be a multiple of `BLOCK_SIZE`"
+        );
         Self {
             capacity,
             sync: PhantomData,
@@ -46,12 +68,17 @@ impl<C: Capacity, SP: SyncPrimitives> Array<C, SP> {
     }
 }
 
-impl<C: Capacity, SP: SyncPrimitives> Channel for Array<C, SP> {
+impl<const BLOCK_SIZE: usize, C: Capacity, SP: SyncPrimitives> Channel
+    for Array<BLOCK_SIZE, C, SP>
+{
     type TxHalf<T> = Tx<T, Self>;
     type RxHalf<T> = MRx<T, Self>;
 }
 
-impl<C: Capacity, SP: SyncPrimitives> BoundedChannel for Array<C, SP> {}
+impl<const BLOCK_SIZE: usize, C: Capacity, SP: SyncPrimitives> BoundedChannel
+    for Array<BLOCK_SIZE, C, SP>
+{
+}
 
 type Slot<T> = RacyCell<T>;
 
@@ -68,7 +95,9 @@ impl<T, C: Capacity> Deref for Storage<T, C> {
     }
 }
 
-impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
+impl<const BLOCK_SIZE: usize, C: Capacity, SP: SyncPrimitives> internal::Channel
+    for Array<BLOCK_SIZE, C, SP>
+{
     type Storage<T> = Storage<T, C>;
 
     fn storage<T>(self) -> Self::Storage<T> {
@@ -113,7 +142,7 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
     fn is_full<T>(chan: &Chan<T, Self>) -> bool {
         let tail = chan.tx_state.load(Relaxed) & LB;
         let head = chan.rx_state.load(Relaxed) & LB;
-        let max_tail = head.wrapping_add(chan.lap()) & LB;
+        let max_tail = head.wrapping_add(chan.lap()) & LB & !(BLOCK_SIZE - 1);
         tail == max_tail
     }
 
@@ -138,7 +167,7 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
         }
         let tail = *state & LB;
         let head = chan.rx_state.load(SeqCst);
-        let max_tail = head.wrapping_add(chan.lap()) & LB;
+        let max_tail = head.wrapping_add(chan.lap()) & LB & !(BLOCK_SIZE - 1);
         if max_tail == tail {
             return Err(TryAcquireError::Unavailable);
         }
@@ -159,8 +188,8 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
         if chan.closed.load(SeqCst) != 0 {
             #[cold]
             #[inline(never)]
-            fn handle_closed<C: Capacity, SP: SyncPrimitives, T>(
-                chan: &Chan<T, Array<C, SP>>,
+            fn handle_closed<const BLOCK_SIZE: usize, C: Capacity, SP: SyncPrimitives, T>(
+                chan: &Chan<T, Array<BLOCK_SIZE, C, SP>>,
                 state: usize,
             ) -> Result<(), SendError<T>> {
                 let new_tail = chan.wrap_around(state & chan.slot_mask(), state, true) & LB;
@@ -185,6 +214,7 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
     type RxSlot<T> = T;
     type RxWaiter = WaitQueue<SP>;
     type RxRefCount = AtomicUsize;
+    const WAKE_TX_AFTER_READ: bool = false;
 
     fn rx_init_state<T>(_storage: &Self::Storage<T>) -> Self::RxAtomicState<T> {
         AtomicUsize::new(0)
@@ -198,7 +228,7 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
 
     #[inline(always)]
     fn rx_acquire_slot<T>(chan: &Chan<T, Self>) -> Result<Self::RxSlot<T>, Self::RxState<T>> {
-        let state = chan.rx_state.load(Acquire);
+        let state = chan.rx_state.load(Relaxed);
         let head = state & LB;
         let tail = state >> HB_SHIFT;
         if head == tail {
@@ -206,11 +236,18 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
         }
         let head_idx = state & chan.slot_mask();
         let slot = unsafe { chan.get_unchecked(head_idx) };
+        fence(Acquire);
         let msg = unsafe { slot.read_racy() };
         let new_state = chan.wrap_around(head_idx, state, true);
-        chan.rx_state
-            .compare_exchange_weak(state, new_state, SeqCst, Acquire)
-            .map(|_| unsafe { msg.assume_init() })
+        if new_state.is_multiple_of(BLOCK_SIZE) {
+            chan.rx_state
+                .compare_exchange_weak(state, new_state, SeqCst, Relaxed)?;
+            chan.tx_waiter.wake_cold();
+        } else {
+            chan.rx_state
+                .compare_exchange_weak(state, new_state, Relaxed, Relaxed)?;
+        }
+        Ok(unsafe { msg.assume_init() })
     }
 
     fn rx_acquire_slot_cold<T, B: BackoffStrategy>(
@@ -225,7 +262,7 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
             let head_idx = *state & chan.slot_mask();
             let mut new_state = chan.wrap_around(head_idx, *state, true);
             if head == tail {
-                let state_reload = chan.rx_state.load(Acquire);
+                let state_reload = chan.rx_state.load(Relaxed);
                 if state_reload != *state {
                     *state = state_reload;
                     continue;
@@ -245,16 +282,28 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
                         TryAcquireError::Unavailable
                     });
                 }
+                fence(Ordering::Release);
                 new_state = (new_state & LB) | (tail << HB_SHIFT);
             }
             let slot = unsafe { chan.get_unchecked(head_idx) };
+            fence(Acquire);
             let msg = unsafe { slot.read_racy() };
-            if backoff.backoff(state, || chan.rx_state.load(Acquire)) {
+            if backoff.backoff(state, || chan.rx_state.load(Relaxed)) {
                 continue;
             }
-            match (chan.rx_state).compare_exchange_weak(*state, new_state, SeqCst, SeqCst) {
-                Ok(_) => return Ok(unsafe { msg.assume_init() }),
-                Err(s) => *state = s,
+            if state.is_multiple_of(BLOCK_SIZE) {
+                match (chan.rx_state).compare_exchange_weak(*state, new_state, SeqCst, Relaxed) {
+                    Ok(_) => {
+                        chan.tx_waiter.wake_cold();
+                        return Ok(unsafe { msg.assume_init() });
+                    }
+                    Err(s) => *state = s,
+                }
+            } else {
+                match (chan.rx_state).compare_exchange_weak(*state, new_state, Relaxed, Relaxed) {
+                    Ok(_) => return Ok(unsafe { msg.assume_init() }),
+                    Err(s) => *state = s,
+                }
             }
         }
     }

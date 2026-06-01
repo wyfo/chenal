@@ -68,7 +68,7 @@ spmc_send_blocking:
 	jmp .LBB6_12
 .LBB6_8:
 	lea rdi, [rbx + 128]
-	call qword ptr [rip + <chenal::spmc::array::Array<C,SP> as chenal::internal::Channel>::write_slot::handle_closed@GOTPCREL]
+	call qword ptr [rip + <chenal::spmc::array::Array<_,C,SP> as chenal::internal::Channel>::write_slot::handle_closed@GOTPCREL]
 	test al, 1
 	je .LBB6_10
 	mov r14, rdx

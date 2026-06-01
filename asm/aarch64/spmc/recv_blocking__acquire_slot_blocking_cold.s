@@ -23,10 +23,12 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	b.eq .LBB9_11
 .LBB9_3:
 	bfi x9, x11, #32, #32
+	dmb ish
 .LBB9_4:
 	ldr x10, [x20, #416]
+	dmb ishld
 	mov x11, x21
-	ldr x10, [x10, x8, lsl #3]
+	ldr x26, [x10, x8, lsl #3]
 	dmb ishld
 	add x8, x20, #128
 	casal x11, x9, [x8]
@@ -55,8 +57,7 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	cmp x10, x11
 	b.ne .LBB9_4
 .LBB9_8:
-	add x11, x20, #128
-	ldar x11, [x11]
+	ldr x11, [x20, #128]
 	cmp x11, x21
 	b.ne .LBB9_5
 	add x12, x20, #440
@@ -72,7 +73,7 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	csel x11, x11, x12, eq
 	cmp x10, x11
 	b.ne .LBB9_3
-	b .LBB9_20
+	b .LBB9_22
 .LBB9_11:
 	tbz w0, #0, .LBB9_14
 	mov x0, x3
@@ -83,7 +84,7 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	mov x3, x26
 	cmp w8, #2
 	b.eq .LBB9_1
-	b .LBB9_22
+	b .LBB9_24
 	ldr x8, [sp]
 	mov x26, x3
 	cbnz x8, .LBB9_16
@@ -99,11 +100,18 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	mov x3, x26
 	b .LBB9_1
 .LBB9_18:
-	str x10, [x19, #8]
+	add x8, x20, #288
+	ldar x1, [x8]
+	cmp x1, #1
+	b.hi .LBB9_20
+	add x0, x20, #256
+	bl spmc_waker::SpmcWaker<_,_>::wake_unsync_cold
+.LBB9_20:
+	str x26, [x19, #8]
 	ldr x9, [sp]
 	strb wzr, [x19]
-	cbnz x9, .LBB9_21
-.LBB9_19:
+	cbnz x9, .LBB9_23
+.LBB9_21:
 	ldp x20, x19, [sp, #144]
 	ldp x22, x21, [sp, #128]
 	ldp x24, x23, [sp, #112]
@@ -111,30 +119,32 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	ldp x29, x30, [sp, #80]
 	add sp, sp, #160
 	ret
-.LBB9_20:
+.LBB9_22:
 	strb wzr, [x19, #1]
 	mov w8, #1
 	ldr x9, [sp]
 	strb w8, [x19]
-	cbz x9, .LBB9_19
-.LBB9_21:
+	cbz x9, .LBB9_21
+.LBB9_23:
 	mov x0, sp
 	bl <chenal::waiter::OptionCold<T> as core::ops::drop::Drop>::drop::drop_cold
-	b .LBB9_19
-.LBB9_22:
+	b .LBB9_21
+.LBB9_24:
 	strb w8, [x19, #1]
 	mov w8, #1
 	ldr x9, [sp]
 	strb w8, [x19]
-	cbz x9, .LBB9_19
-	b .LBB9_21
+	cbz x9, .LBB9_21
+	b .LBB9_23
+	b .LBB9_27
+.LBB9_27:
 	ldr x8, [sp]
 	mov x19, x0
-	cbnz x8, .LBB9_25
-.LBB9_24:
+	cbnz x8, .LBB9_29
+.LBB9_28:
 	mov x0, x19
 	bl _Unwind_Resume
 	mov x0, sp
 	bl <chenal::waiter::OptionCold<T> as core::ops::drop::Drop>::drop::drop_cold
-	b .LBB9_24
+	b .LBB9_28
 	bl core::panicking::panic_in_cleanup

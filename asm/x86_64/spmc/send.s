@@ -69,7 +69,7 @@ spmc_send:
 .LBB6_15:
 	lea rdi, [rbx + 128]
 	mov rsi, rdx
-	call qword ptr [rip + <chenal::spmc::array::Array<C,SP> as chenal::internal::Channel>::write_slot::handle_closed@GOTPCREL]
+	call qword ptr [rip + <chenal::spmc::array::Array<_,C,SP> as chenal::internal::Channel>::write_slot::handle_closed@GOTPCREL]
 	test al, 1
 	je .LBB6_6
 	mov r14, rdx
