@@ -45,7 +45,7 @@ spmc_send:
 	ldr x1, [x2]
 	add x0, x19, #128
 	mov x2, x8
-	bl chenal::channel::Chan<T,Ch,SP>::poll_acquire_slot_cold
+	bl chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold
 	cmp x0, #2
 	b.eq .LBB6_12
 	mov x8, x1

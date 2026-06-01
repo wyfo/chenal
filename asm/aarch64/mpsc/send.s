@@ -12,42 +12,42 @@ mpsc_send:
 	ldr x4, [x10, #128]
 	mov w9, w4
 	cmp x9, x4, lsr #32
-	b.eq .LBB13_4
+	b.eq .LBB12_4
 	ldr x11, [x10, #560]
 	ldr x12, [x10, #552]
 	and x11, x11, x4
 	sub x12, x12, #1
 	cmp x11, x12
-	b.hs .LBB13_4
+	b.hs .LBB12_4
 	add x12, x4, #1
 	mov x13, x4
 	cas x13, x12, [x8]
 	cmp x13, x4
 	mov x4, x13
-	b.ne .LBB13_4
+	b.ne .LBB12_4
 	ldr x8, [x10, #544]
 	str xzr, [sp]
 	add x8, x8, x11, lsl #4
-	b .LBB13_9
-.LBB13_4:
+	b .LBB12_9
+.LBB12_4:
 	ldr x2, [x2]
 	sub x0, x29, #24
 	add x3, x20, #24
 	mov x1, x8
-	bl chenal::channel::Chan<T,Ch,SP>::poll_acquire_slot_cold
+	bl chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold
 	ldur w8, [x29, #-24]
-	tbz w8, #0, .LBB13_7
+	tbz w8, #0, .LBB12_7
 	mov w0, #2
 	ldr x8, [sp, #24]
-	cbz x8, .LBB13_12
-	b .LBB13_14
+	cbz x8, .LBB12_12
+	b .LBB12_14
 	ldp x8, x9, [x29, #-16]
 	ldr w10, [sp]
 	ldr x1, [sp, #8]
 	str xzr, [sp]
-	tbz w10, #0, .LBB13_15
-	cbz x8, .LBB13_13
-.LBB13_9:
+	tbz w10, #0, .LBB12_15
+	cbz x8, .LBB12_13
+.LBB12_9:
 	ldr x10, [sp, #16]
 	dmb ishld
 	str x1, [x8], #8
@@ -55,21 +55,21 @@ mpsc_send:
 	add x8, x10, #344
 	ldar x1, [x8]
 	cmp x1, #1
-	b.hi .LBB13_11
+	b.hi .LBB12_11
 	add x0, x10, #312
 	bl spmc_waker::SpmcWaker<_,_>::wake_unsync_cold
-.LBB13_11:
+.LBB12_11:
 	mov x0, xzr
 	ldr x8, [sp, #24]
-	cbnz x8, .LBB13_14
+	cbnz x8, .LBB12_14
 	ldp x20, x19, [sp, #112]
 	ldp x29, x30, [sp, #96]
 	add sp, sp, #128
 	ret
 	mov w0, #1
 	ldr x8, [sp, #24]
-	cbz x8, .LBB13_12
-.LBB13_14:
+	cbz x8, .LBB12_12
+.LBB12_14:
 	mov x8, sp
 	mov x19, x0
 	mov x20, x1
@@ -81,15 +81,15 @@ mpsc_send:
 	ldp x29, x30, [sp, #96]
 	add sp, sp, #128
 	ret
-	bl <chenal::channel::SendFuture<T,Ch,B,SP> as core::future::future::Future>::poll::polled_after_completion
+	bl <chenal::channel::SendFuture<T,Ch,B> as core::future::future::Future>::poll::polled_after_completion
 	brk #0x1
 	ldr x8, [sp, #24]
 	mov x19, x0
-	cbnz x8, .LBB13_19
-.LBB13_18:
+	cbnz x8, .LBB12_19
+.LBB12_18:
 	mov x0, x19
 	bl _Unwind_Resume
 	add x0, x20, #24
 	bl <chenal::waiter::OptionCold<T> as core::ops::drop::Drop>::drop::drop_cold
-	b .LBB13_18
+	b .LBB12_18
 	bl core::panicking::panic_in_cleanup

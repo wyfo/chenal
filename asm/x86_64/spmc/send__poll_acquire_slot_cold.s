@@ -1,4 +1,4 @@
-chenal::channel::Chan<T,Ch,SP>::poll_acquire_slot_cold:
+chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	mov rcx, qword ptr [rdi + 424]
 	mov eax, 1
 	test rcx, rcx

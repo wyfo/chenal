@@ -54,7 +54,7 @@ mpmc_recv:
 	mov rsi, qword ptr [rsi]
 	mov rdx, rbx
 	mov rcx, rax
-	call chenal::channel::Chan<T,Ch,SP>::poll_acquire_slot_cold
+	call chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold
 	cmp rax, 2
 	jne .LBB12_12
 	mov eax, 2

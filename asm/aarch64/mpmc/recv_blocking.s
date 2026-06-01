@@ -34,7 +34,7 @@ mpmc_recv_blocking:
 	movk w8, #15258, lsl #16
 	add x3, sp, #16
 	str w8, [sp, #40]
-	bl chenal::channel::Chan<T,Ch,SP>::acquire_slot_blocking_cold
+	bl chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold
 	ldrb w8, [sp]
 	cmp w8, #1
 	b.ne .LBB12_7

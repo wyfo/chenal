@@ -1,4 +1,4 @@
-chenal::channel::Chan<T,Ch,SP>::acquire_slot_blocking_cold:
+chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	sub sp, sp, #160
 	stp x29, x30, [sp, #80]
 	stp x26, x25, [sp, #96]

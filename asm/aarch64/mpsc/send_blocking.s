@@ -8,35 +8,35 @@ mpsc_send_blocking:
 	mov w8, w9
 	mov x2, x9
 	cmp x8, x9, lsr #32
-	b.eq .LBB13_6
+	b.eq .LBB12_6
 	ldr x10, [x19, #560]
 	ldr x11, [x19, #552]
 	and x10, x10, x9
 	sub x11, x11, #1
 	cmp x10, x11
-	b.hs .LBB13_6
+	b.hs .LBB12_6
 	add x11, x9, #1
 	add x12, x19, #128
 	cas x2, x11, [x12]
 	cmp x2, x9
-	b.ne .LBB13_6
+	b.ne .LBB12_6
 	ldr x9, [x19, #544]
 	add x9, x9, x10, lsl #4
 	stp x9, x8, [sp]
-.LBB13_4:
+.LBB12_4:
 	dmb ishld
 	str x1, [x9], #8
 	add x10, x19, #472
 	stlr x8, [x9]
 	ldar x8, [x10]
 	cmp x8, #1
-	b.ls .LBB13_9
+	b.ls .LBB12_9
 	mov x0, xzr
 	ldp x20, x19, [sp, #64]
 	ldp x29, x30, [sp, #48]
 	add sp, sp, #80
 	ret
-.LBB13_6:
+.LBB12_6:
 	mov w8, #51712
 	mov x20, x1
 	mov x0, sp
@@ -44,19 +44,19 @@ mpsc_send_blocking:
 	add x1, x19, #128
 	add x3, sp, #16
 	str w8, [sp, #40]
-	bl chenal::channel::Chan<T,Ch,SP>::acquire_slot_blocking_cold
+	bl chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold
 	ldr x9, [sp]
-	cbz x9, .LBB13_8
+	cbz x9, .LBB12_8
 	ldr x8, [sp, #8]
 	mov x1, x20
-	b .LBB13_4
+	b .LBB12_4
 	mov w0, #1
 	mov x1, x20
 	ldp x20, x19, [sp, #64]
 	ldp x29, x30, [sp, #48]
 	add sp, sp, #80
 	ret
-.LBB13_9:
+.LBB12_9:
 	add x0, x19, #440
 	mov x19, x1
 	mov x1, x8

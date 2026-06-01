@@ -56,7 +56,7 @@ spmc_send_blocking:
 	lea rsi, [rbx + 128]
 	lea rdi, [rsp + 8]
 	lea rcx, [rsp + 24]
-	call chenal::channel::Chan<T,Ch,SP>::acquire_slot_blocking_cold
+	call chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold
 	mov eax, 1
 	cmp byte ptr [rsp + 8], 0
 	je .LBB6_3

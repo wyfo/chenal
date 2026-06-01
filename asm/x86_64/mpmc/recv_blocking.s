@@ -29,7 +29,7 @@ mpmc_recv_blocking:
 	mov rdi, rsp
 	lea rcx, [rsp + 16]
 	mov rdx, rax
-	call chenal::channel::Chan<T,Ch,SP>::acquire_slot_blocking_cold
+	call chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold
 	cmp byte ptr [rsp], 1
 	jne .LBB12_6
 	mov eax, 1

@@ -9,11 +9,11 @@ spsc_send:
 	mov rcx, rdx
 	shr rcx, 32
 	cmp edx, ecx
-	je .LBB4_10
+	je .LBB3_10
 	mov rcx, qword ptr [rbx + 544]
 	test rcx, rcx
-	jne .LBB4_10
-.LBB4_2:
+	jne .LBB3_10
+.LBB3_2:
 	mov rax, qword ptr [rbx + 520]
 	mov rcx, qword ptr [rbx + 536]
 	and rcx, rdx
@@ -21,55 +21,55 @@ spsc_send:
 	mov rax, qword ptr [rbx + 528]
 	dec rax
 	cmp rcx, rax
-	jne .LBB4_4
+	jne .LBB3_4
 	mov ecx, dword ptr [rbx + 536]
 	or ecx, edx
 	inc ecx
 	movabs rax, -4294967296
 	and rax, rdx
 	or rax, rcx
-	jmp .LBB4_5
-.LBB4_4:
+	jmp .LBB3_5
+.LBB3_4:
 	lea rax, [rdx + 1]
-.LBB4_5:
+.LBB3_5:
 	xchg qword ptr [rbx + 128], rax
 	mov rax, qword ptr [rbx + 544]
 	test rax, rax
-	jne .LBB4_15
-.LBB4_6:
+	jne .LBB3_15
+.LBB3_6:
 	mov rsi, qword ptr [rbx + 504]
 	cmp rsi, 1
-	jbe .LBB4_13
-.LBB4_7:
+	jbe .LBB3_13
+.LBB3_7:
 	xor eax, eax
-.LBB4_8:
-.LBB4_9:
+.LBB3_8:
+.LBB3_9:
 	mov rdx, r14
 	add rsp, 8
 	pop rbx
 	pop r14
 	ret
-.LBB4_10:
+.LBB3_10:
 	mov rsi, qword ptr [rax]
 	lea rdi, [rbx + 128]
-	call chenal::channel::Chan<T,Ch,SP>::poll_acquire_slot_cold
+	call chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold
 	cmp rax, 2
-	je .LBB4_8
+	je .LBB3_8
 	test rax, rax
-	je .LBB4_2
-.LBB4_12:
+	je .LBB3_2
+.LBB3_12:
 	mov eax, 1
-	jmp .LBB4_9
-.LBB4_13:
+	jmp .LBB3_9
+.LBB3_13:
 	add rbx, 472
 	mov rdi, rbx
 	call qword ptr [rip + spmc_waker::SpmcWaker<_,_>::wake_unsync_cold@GOTPCREL]
-	jmp .LBB4_7
-.LBB4_15:
+	jmp .LBB3_7
+.LBB3_15:
 	lea rdi, [rbx + 128]
 	mov rsi, rdx
 	call qword ptr [rip + <chenal::spsc::array::Array<_,C> as chenal::internal::Channel>::write_slot::handle_closed@GOTPCREL]
 	test al, 1
-	je .LBB4_6
+	je .LBB3_6
 	mov r14, rdx
-	jmp .LBB4_12
+	jmp .LBB3_12

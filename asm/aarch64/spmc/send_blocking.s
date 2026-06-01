@@ -53,7 +53,7 @@ spmc_send_blocking:
 	add x1, x19, #128
 	add x3, sp, #16
 	str w8, [sp, #40]
-	bl chenal::channel::Chan<T,Ch,SP>::acquire_slot_blocking_cold
+	bl chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold
 	ldrb w8, [sp]
 	mov x1, x20
 	tbz w8, #0, .LBB6_3

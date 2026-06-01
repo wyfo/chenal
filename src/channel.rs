@@ -24,7 +24,6 @@ use crate::{
     internal,
     loom::sync::atomic::AtomicUsize,
     rc::RefCount,
-    sync::{DefaultSyncPrimitives, SyncPrimitives},
     waiter::Waiter,
 };
 
@@ -32,26 +31,14 @@ use crate::{
 #[expect(private_bounds)]
 pub trait Channel: internal::Channel {
     /// Sender half of the channel.
-    type TxHalf<T, SP: SyncPrimitives>: ChannelHalf<Msg = T, Channel = Self, SyncPrimitives = SP>;
+    type TxHalf<T>: ChannelHalf<Msg = T, Channel = Self>;
     /// Receiver half of the channel.
-    type RxHalf<T, SP: SyncPrimitives>: ChannelHalf<Msg = T, Channel = Self, SyncPrimitives = SP>;
-    /// Creates a sender/receiver pair using this implementation, with the given
-    /// [`SyncPrimitives`].
-    fn channel_with_sync<T, SP: SyncPrimitives>(
-        self,
-    ) -> (Self::TxHalf<T, SP>, Self::RxHalf<T, SP>) {
-        use internal::ChannelHalf;
-        let chan = Arc::new(Chan::<T, Self, SP>::new(self));
-        (Self::TxHalf::new(chan.clone()), Self::RxHalf::new(chan))
-    }
+    type RxHalf<T>: ChannelHalf<Msg = T, Channel = Self>;
     /// Creates a sender/receiver pair using this implementation.
-    fn channel<T>(
-        self,
-    ) -> (
-        Self::TxHalf<T, DefaultSyncPrimitives>,
-        Self::RxHalf<T, DefaultSyncPrimitives>,
-    ) {
-        self.channel_with_sync::<T, DefaultSyncPrimitives>()
+    fn channel<T>(self) -> (Self::TxHalf<T>, Self::RxHalf<T>) {
+        use internal::ChannelHalf;
+        let chan = Arc::new(Chan::new(self));
+        (Self::TxHalf::new(chan.clone()), Self::RxHalf::new(chan))
     }
 }
 
@@ -60,15 +47,11 @@ pub trait BoundedChannel: Channel {}
 
 /// A sender or receiver half of a channel.
 #[expect(private_bounds)]
-pub trait ChannelHalf:
-    internal::ChannelHalf<Self::Msg, Self::Channel, Self::SyncPrimitives>
-{
+pub trait ChannelHalf: internal::ChannelHalf<Self::Msg, Self::Channel> {
     /// The message type of the channel.
     type Msg;
     /// The implementation of the channel.
     type Channel: Channel;
-    /// The [`SyncPrimitives`] used by the channel.
-    type SyncPrimitives: SyncPrimitives;
 }
 
 /// Opaque unique identifier for a channel instance. Two halves sharing the same `ChannelId`
@@ -76,70 +59,70 @@ pub trait ChannelHalf:
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct ChannelId(NonNull<()>);
 
-trait Operation<T, Ch: internal::Channel, SP: SyncPrimitives>: 'static {
+trait Operation<T, Ch: internal::Channel>: 'static {
     type State;
     type Slot;
-    type Waiter: Waiter<SP>;
-    fn acquire_slot(chan: &Chan<T, Ch, SP>) -> Result<Self::Slot, Self::State>;
+    type Waiter: Waiter;
+    fn acquire_slot(chan: &Chan<T, Ch>) -> Result<Self::Slot, Self::State>;
     fn acquire_slot_cold<B: BackoffStrategy>(
-        chan: &Chan<T, Ch, SP>,
+        chan: &Chan<T, Ch>,
         state: &mut Self::State,
         backoff: bool,
     ) -> Result<Self::Slot, TryAcquireError>;
-    fn waiter(chan: &Chan<T, Ch, SP>) -> &Self::Waiter;
+    fn waiter(chan: &Chan<T, Ch>) -> &Self::Waiter;
 }
 
 struct SendMsg;
-impl<T, Ch: internal::Channel, SP: SyncPrimitives> Operation<T, Ch, SP> for SendMsg {
+impl<T, Ch: internal::Channel> Operation<T, Ch> for SendMsg {
     type State = Ch::TxState<T>;
     type Slot = Ch::TxSlot<T>;
-    type Waiter = Ch::TxWaiter<SP>;
-    fn acquire_slot(chan: &Chan<T, Ch, SP>) -> Result<Self::Slot, Self::State> {
+    type Waiter = Ch::TxWaiter;
+    fn acquire_slot(chan: &Chan<T, Ch>) -> Result<Self::Slot, Self::State> {
         Ch::tx_acquire_slot(chan)
     }
     fn acquire_slot_cold<B: BackoffStrategy>(
-        chan: &Chan<T, Ch, SP>,
+        chan: &Chan<T, Ch>,
         state: &mut Self::State,
         backoff: bool,
     ) -> Result<Self::Slot, TryAcquireError> {
-        Ch::tx_acquire_slot_cold::<T, B, SP>(chan, state, backoff)
+        Ch::tx_acquire_slot_cold::<T, B>(chan, state, backoff)
     }
-    fn waiter(chan: &Chan<T, Ch, SP>) -> &Self::Waiter {
+    fn waiter(chan: &Chan<T, Ch>) -> &Self::Waiter {
         &chan.tx_waiter
     }
 }
 
 struct RecvMsg;
-impl<T, Ch: internal::Channel, SP: SyncPrimitives> Operation<T, Ch, SP> for RecvMsg {
+impl<T, Ch: internal::Channel> Operation<T, Ch> for RecvMsg {
     type State = Ch::RxState<T>;
     type Slot = Ch::RxSlot<T>;
-    type Waiter = Ch::RxWaiter<SP>;
-    fn acquire_slot(chan: &Chan<T, Ch, SP>) -> Result<Self::Slot, Self::State> {
+    type Waiter = Ch::RxWaiter;
+    fn acquire_slot(chan: &Chan<T, Ch>) -> Result<Self::Slot, Self::State> {
         Ch::rx_acquire_slot(chan)
     }
     fn acquire_slot_cold<B: BackoffStrategy>(
-        chan: &Chan<T, Ch, SP>,
+        chan: &Chan<T, Ch>,
         state: &mut Self::State,
         backoff: bool,
     ) -> Result<Self::Slot, TryAcquireError> {
-        Ch::rx_acquire_slot_cold::<T, B, SP>(chan, state, backoff)
+        Ch::rx_acquire_slot_cold::<T, B>(chan, state, backoff)
     }
-    fn waiter(chan: &Chan<T, Ch, SP>) -> &Self::Waiter {
+    fn waiter(chan: &Chan<T, Ch>) -> &Self::Waiter {
         &chan.rx_waiter
     }
 }
 
 // fields are duplicated instead of using an intermediate struct
 // to keep them packed on the same cache line
-pub(crate) struct Chan<T, Ch: internal::Channel, SP: SyncPrimitives = DefaultSyncPrimitives> {
+pub(crate) struct Chan<T, Ch: internal::Channel> {
     pub(crate) tx_state: CachePadded<Ch::TxAtomicState<T>>,
     pub(crate) rx_state: CachePadded<Ch::RxAtomicState<T>>,
     pub(crate) storage: Ch::Storage<T>,
-    pub(crate) tx_waiter: Ch::TxWaiter<SP>,
-    pub(crate) rx_waiter: Ch::RxWaiter<SP>,
+    pub(crate) tx_waiter: Ch::TxWaiter,
+    pub(crate) rx_waiter: Ch::RxWaiter,
     tx_cnt: Ch::TxRefCount,
     rx_cnt: Ch::RxRefCount,
-    closed_waiter: aiq::WaitQueue<SP>,
+    closed_waiter: aiq::WaitQueue,
     // In miri/loom MPMC tests with unbounded backoff, several receiver
     // might be blocked in a backoff loop, with the scheduler jumping
     // from one to another without ever running the sender to unblock
@@ -148,12 +131,12 @@ pub(crate) struct Chan<T, Ch: internal::Channel, SP: SyncPrimitives = DefaultSyn
     pub(crate) lock: crate::loom::sync::Mutex<()>,
 }
 
-unsafe impl<T: Send, Ch: internal::Channel, SP: SyncPrimitives> Send for Chan<T, Ch, SP> {}
-unsafe impl<T: Send, Ch: internal::Channel, SP: SyncPrimitives> Sync for Chan<T, Ch, SP> {}
-impl<T, Ch: internal::Channel, SP: SyncPrimitives> UnwindSafe for Chan<T, Ch, SP> {}
-impl<T, Ch: internal::Channel, SP: SyncPrimitives> RefUnwindSafe for Chan<T, Ch, SP> {}
+unsafe impl<T: Send, Ch: internal::Channel> Send for Chan<T, Ch> {}
+unsafe impl<T: Send, Ch: internal::Channel> Sync for Chan<T, Ch> {}
+impl<T, Ch: internal::Channel> UnwindSafe for Chan<T, Ch> {}
+impl<T, Ch: internal::Channel> RefUnwindSafe for Chan<T, Ch> {}
 
-impl<T, Ch: internal::Channel, SP: SyncPrimitives> Chan<T, Ch, SP> {
+impl<T, Ch: internal::Channel> Chan<T, Ch> {
     pub(crate) fn new(channel: Ch) -> Self {
         let storage = channel.storage();
         Self {
@@ -202,14 +185,14 @@ impl<T, Ch: internal::Channel, SP: SyncPrimitives> Chan<T, Ch, SP> {
     }
 
     #[inline(always)]
-    fn try_acquire_slot<O: Operation<T, Ch, SP>, B: BackoffStrategy>(
+    fn try_acquire_slot<O: Operation<T, Ch>, B: BackoffStrategy>(
         &self,
     ) -> Result<O::Slot, TryAcquireError> {
         O::acquire_slot(self).or_else(|state| self.try_acquire_slot_cold::<O, B>(state))
     }
 
     #[cold]
-    fn try_acquire_slot_cold<O: Operation<T, Ch, SP>, B: BackoffStrategy>(
+    fn try_acquire_slot_cold<O: Operation<T, Ch>, B: BackoffStrategy>(
         &self,
         mut state: O::State,
     ) -> Result<O::Slot, TryAcquireError> {
@@ -236,10 +219,10 @@ impl<T, Ch: internal::Channel, SP: SyncPrimitives> Chan<T, Ch, SP> {
     }
 
     #[inline(always)]
-    fn poll_acquire_slot<'a, O: Operation<T, Ch, SP>, B: BackoffStrategy>(
+    fn poll_acquire_slot<'a, O: Operation<T, Ch>, B: BackoffStrategy>(
         &'a self,
         cx: &mut Context<'_>,
-        wait: Pin<&mut <O::Waiter as Waiter<SP>>::Wait<'a>>,
+        wait: Pin<&mut <O::Waiter as Waiter>::Wait<'a>>,
     ) -> Poll<Result<O::Slot, AcquireError>> {
         match O::acquire_slot(self) {
             Ok(slot) => Poll::Ready(Ok(slot)),
@@ -248,10 +231,10 @@ impl<T, Ch: internal::Channel, SP: SyncPrimitives> Chan<T, Ch, SP> {
     }
 
     #[cold]
-    fn poll_acquire_slot_cold<'a, O: Operation<T, Ch, SP>, B: BackoffStrategy>(
+    fn poll_acquire_slot_cold<'a, O: Operation<T, Ch>, B: BackoffStrategy>(
         &'a self,
         cx: &mut Context<'_>,
-        mut wait: Pin<&mut <O::Waiter as Waiter<SP>>::Wait<'a>>,
+        mut wait: Pin<&mut <O::Waiter as Waiter>::Wait<'a>>,
         mut state: O::State,
     ) -> Poll<Result<O::Slot, AcquireError>> {
         let mut backoff = true;
@@ -274,7 +257,7 @@ impl<T, Ch: internal::Channel, SP: SyncPrimitives> Chan<T, Ch, SP> {
     }
 
     #[cfg(feature = "blocking")]
-    fn acquire_slot_blocking<O: Operation<T, Ch, SP>, B: BackoffStrategy>(
+    fn acquire_slot_blocking<O: Operation<T, Ch>, B: BackoffStrategy>(
         &self,
         parker: impl Into<Parker>,
     ) -> Result<O::Slot, TryAcquireError> {
@@ -284,12 +267,12 @@ impl<T, Ch: internal::Channel, SP: SyncPrimitives> Chan<T, Ch, SP> {
 
     #[cfg(feature = "blocking")]
     #[cold]
-    fn acquire_slot_blocking_cold<O: Operation<T, Ch, SP>, B: BackoffStrategy>(
+    fn acquire_slot_blocking_cold<O: Operation<T, Ch>, B: BackoffStrategy>(
         &self,
         mut state: O::State,
         mut parker: Parker,
     ) -> Result<O::Slot, TryAcquireError> {
-        let mut wait = pin!(<O::Waiter as Waiter<SP>>::Wait::default());
+        let mut wait = pin!(<O::Waiter as Waiter>::Wait::default());
         let mut backoff = true;
         let mut waker_registered = false;
         loop {
@@ -381,13 +364,13 @@ impl<T, Ch: internal::Channel, SP: SyncPrimitives> Chan<T, Ch, SP> {
     }
 }
 
-impl<T, Ch: internal::Channel, SP: SyncPrimitives> Drop for Chan<T, Ch, SP> {
+impl<T, Ch: internal::Channel> Drop for Chan<T, Ch> {
     fn drop(&mut self) {
         Ch::drop_storage(self);
     }
 }
 
-impl<T, Ch: internal::Channel, SP: SyncPrimitives> Deref for Chan<T, Ch, SP> {
+impl<T, Ch: internal::Channel> Deref for Chan<T, Ch> {
     type Target = Ch::Storage<T>;
 
     fn deref(&self) -> &Self::Target {
@@ -395,7 +378,7 @@ impl<T, Ch: internal::Channel, SP: SyncPrimitives> Deref for Chan<T, Ch, SP> {
     }
 }
 
-impl<T, Ch: internal::Channel, SP: SyncPrimitives> fmt::Debug for Chan<T, Ch, SP> {
+impl<T, Ch: internal::Channel> fmt::Debug for Chan<T, Ch> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let half_kind = |rc_size| if rc_size > 0 { "M" } else { "S" };
         let tx_kind = half_kind(size_of_val(&self.tx_cnt));
@@ -416,22 +399,16 @@ impl<T, Ch: internal::Channel, SP: SyncPrimitives> fmt::Debug for Chan<T, Ch, SP
 /// Resolves once the message has been written in the channel, or the channel is closed.
 ///
 /// Message being sent can be retrieved with [`cancel`](Self::cancel), cancelling the future.
-pub struct SendFuture<
-    'a,
-    T,
-    Ch: Channel,
-    B: BackoffStrategy = NoBackoff,
-    SP: SyncPrimitives = DefaultSyncPrimitives,
-> {
-    chan: &'a Chan<T, Ch, SP>,
+pub struct SendFuture<'a, T, Ch: Channel, B: BackoffStrategy = NoBackoff> {
+    chan: &'a Chan<T, Ch>,
     msg: Option<T>,
-    wait: <Ch::TxWaiter<SP> as Waiter<SP>>::Wait<'a>,
+    wait: <Ch::TxWaiter as Waiter>::Wait<'a>,
     _backoff: PhantomData<B>,
 }
 
-impl<'a, T, Ch: Channel, B: BackoffStrategy, SP: SyncPrimitives> SendFuture<'a, T, Ch, B, SP> {
+impl<'a, T, Ch: Channel, B: BackoffStrategy> SendFuture<'a, T, Ch, B> {
     #[inline(always)]
-    fn new(chan: &'a Chan<T, Ch, SP>, msg: T) -> Self {
+    fn new(chan: &'a Chan<T, Ch>, msg: T) -> Self {
         Self {
             chan,
             msg: Some(msg),
@@ -446,9 +423,7 @@ impl<'a, T, Ch: Channel, B: BackoffStrategy, SP: SyncPrimitives> SendFuture<'a, 
     }
 }
 
-impl<T, Ch: Channel, B: BackoffStrategy, SP: SyncPrimitives> Future
-    for SendFuture<'_, T, Ch, B, SP>
-{
+impl<T, Ch: Channel, B: BackoffStrategy> Future for SendFuture<'_, T, Ch, B> {
     type Output = Result<(), SendError<T>>;
 
     #[inline(always)]
@@ -473,21 +448,15 @@ impl<T, Ch: Channel, B: BackoffStrategy, SP: SyncPrimitives> Future
 /// Resolves once a message is available, or the channel is closed.
 ///
 /// The future can be reused to receive subsequent messages, as a [`Stream`](futures_core::stream::Stream).
-pub struct RecvFuture<
-    'a,
-    T,
-    Ch: Channel,
-    B: BackoffStrategy = NoBackoff,
-    SP: SyncPrimitives = DefaultSyncPrimitives,
-> {
-    chan: &'a Chan<T, Ch, SP>,
-    wait: <Ch::RxWaiter<SP> as Waiter<SP>>::Wait<'a>,
+pub struct RecvFuture<'a, T, Ch: Channel, B: BackoffStrategy = NoBackoff> {
+    chan: &'a Chan<T, Ch>,
+    wait: <Ch::RxWaiter as Waiter>::Wait<'a>,
     _backoff: PhantomData<B>,
 }
 
-impl<'a, T, Ch: Channel, B: BackoffStrategy, SP: SyncPrimitives> RecvFuture<'a, T, Ch, B, SP> {
+impl<'a, T, Ch: Channel, B: BackoffStrategy> RecvFuture<'a, T, Ch, B> {
     #[inline(always)]
-    fn new(chan: &'a Chan<T, Ch, SP>) -> Self {
+    fn new(chan: &'a Chan<T, Ch>) -> Self {
         Self {
             chan,
             wait: Default::default(),
@@ -496,9 +465,7 @@ impl<'a, T, Ch: Channel, B: BackoffStrategy, SP: SyncPrimitives> RecvFuture<'a, 
     }
 }
 
-impl<T, Ch: Channel, B: BackoffStrategy, SP: SyncPrimitives> Future
-    for RecvFuture<'_, T, Ch, B, SP>
-{
+impl<T, Ch: Channel, B: BackoffStrategy> Future for RecvFuture<'_, T, Ch, B> {
     type Output = Result<T, RecvError>;
 
     #[inline(always)]
@@ -511,9 +478,7 @@ impl<T, Ch: Channel, B: BackoffStrategy, SP: SyncPrimitives> Future
 }
 
 #[cfg(feature = "stream")]
-impl<T, Ch: Channel, B: BackoffStrategy, SP: SyncPrimitives> futures_core::Stream
-    for RecvFuture<'_, T, Ch, B, SP>
-{
+impl<T, Ch: Channel, B: BackoffStrategy> futures_core::Stream for RecvFuture<'_, T, Ch, B> {
     type Item = T;
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.poll(cx).map(Result::ok)
@@ -523,17 +488,15 @@ impl<T, Ch: Channel, B: BackoffStrategy, SP: SyncPrimitives> futures_core::Strea
 /// Future returned by [`CloseHandle::closed`] and similar methods.
 ///
 /// Resolves once the channel is closed.
-pub struct ClosedFuture<'a, SP: SyncPrimitives = DefaultSyncPrimitives>(
-    Wait<&'a aiq::WaitQueue<SP>, SP>,
-);
+pub struct ClosedFuture<'a>(Wait<&'a aiq::WaitQueue>);
 
-impl<'a, SP: SyncPrimitives> ClosedFuture<'a, SP> {
-    fn new<T, Ch: internal::Channel>(chan: &'a Chan<T, Ch, SP>) -> Self {
+impl<'a> ClosedFuture<'a> {
+    fn new<T, Ch: internal::Channel>(chan: &'a Chan<T, Ch>) -> Self {
         Self(chan.closed_waiter.wait())
     }
 }
 
-impl<SP: SyncPrimitives> Future for ClosedFuture<'_, SP> {
+impl Future for ClosedFuture<'_> {
     type Output = ();
 
     #[inline(always)]
@@ -548,7 +511,7 @@ trait Close: Send + Sync + fmt::Debug {
     fn closed(&self) -> ClosedFuture<'_>;
 }
 
-impl<T: Send, Ch: internal::Channel> Close for Chan<T, Ch, DefaultSyncPrimitives> {
+impl<T: Send, Ch: internal::Channel> Close for Chan<T, Ch> {
     fn id(&self) -> ChannelId {
         self.id()
     }
@@ -566,9 +529,7 @@ impl<T: Send, Ch: internal::Channel> Close for Chan<T, Ch, DefaultSyncPrimitives
 pub struct CloseHandle<'a>(Arc<dyn Close + 'a>);
 
 impl<'a> CloseHandle<'a> {
-    pub(crate) fn new<T: Send + 'a, Ch: Channel>(
-        chan: Arc<Chan<T, Ch, DefaultSyncPrimitives>>,
-    ) -> Self {
+    pub(crate) fn new<T: Send + 'a, Ch: Channel>(chan: Arc<Chan<T, Ch>>) -> Self {
         Self(chan as _)
     }
 
@@ -627,30 +588,29 @@ pub(crate) enum Half {
 
 macro_rules! channel_half {
     ($ty:ident $(<$B:ident>)?) => {
-        impl<T, Ch: Channel, $($B: BackoffStrategy,)? SP: SyncPrimitives> Drop for $ty<T, Ch, $($B,)? SP> {
+        impl<T, Ch: Channel, $($B: BackoffStrategy)?> Drop for $ty<T, Ch, $($B)?> {
             fn drop(&mut self) {
                 self.chan.drop_half(Half::$ty);
             }
         }
-        impl<T, Ch: Channel, $($B: BackoffStrategy,)? SP: SyncPrimitives> internal::ChannelHalf<T, Ch, SP> for $ty<T, Ch, $($B,)? SP> {
+        impl<T, Ch: Channel, $($B: BackoffStrategy)?> internal::ChannelHalf<T, Ch> for $ty<T, Ch, $($B)?> {
             const HALF: Half = Half::$ty;
-            fn new(chan: Arc<Chan<T, Ch, SP>>) -> Self {
+            fn new(chan: Arc<Chan<T, Ch>>) -> Self {
                 Self { chan, $(_backoff: PhantomData::<$B>)? }
             }
-            fn chan(&self) -> &Arc<Chan<T, Ch, SP>> {
+            fn chan(&self) -> &Arc<Chan<T, Ch>> {
                 &self.chan
             }
         }
-        impl<T, Ch: Channel, $($B: BackoffStrategy,)? SP: SyncPrimitives> ChannelHalf for $ty<T, Ch, $($B,)? SP> {
+        impl<T, Ch: Channel, $($B: BackoffStrategy)?> ChannelHalf for $ty<T, Ch, $($B)?> {
             type Msg = T;
             type Channel = Ch;
-            type SyncPrimitives = SP;
         }
-        unsafe impl<T: Send, Ch: Channel, $($B: BackoffStrategy,)? SP: SyncPrimitives> Send for $ty<T, Ch, $($B,)? SP> {}
-        unsafe impl<T: Send, Ch: Channel, $($B: BackoffStrategy,)? SP: SyncPrimitives> Sync for $ty<T, Ch, $($B,)? SP> {}
-        impl<T, Ch: Channel, $($B: BackoffStrategy,)? SP: SyncPrimitives> UnwindSafe for $ty<T, Ch, $($B,)? SP> {}
-        impl<T, Ch: Channel, $($B: BackoffStrategy,)? SP: SyncPrimitives> RefUnwindSafe for $ty<T, Ch, $($B,)? SP> {}
-        impl<T, Ch: Channel, $($B: BackoffStrategy,)? SP: SyncPrimitives> $ty<T, Ch, $($B,)? SP> {
+        unsafe impl<T: Send, Ch: Channel, $($B: BackoffStrategy)?> Send for $ty<T, Ch, $($B)?> {}
+        unsafe impl<T: Send, Ch: Channel, $($B: BackoffStrategy)?> Sync for $ty<T, Ch, $($B)?> {}
+        impl<T, Ch: Channel, $($B: BackoffStrategy)?> UnwindSafe for $ty<T, Ch, $($B)?> {}
+        impl<T, Ch: Channel, $($B: BackoffStrategy)?> RefUnwindSafe for $ty<T, Ch, $($B)?> {}
+        impl<T, Ch: Channel, $($B: BackoffStrategy)?> $ty<T, Ch, $($B)?> {
             /// Returns `true` if the channel is closed.
             pub fn is_closed(&self) -> bool {
                 Ch::is_closed(&self.chan)
@@ -659,12 +619,20 @@ macro_rules! channel_half {
             pub fn close(&self) {
                 self.chan.close();
             }
+            /// Returns a [`CloseHandle`] that can close the channel or observe its closure
+            /// without holding this half.
+            pub fn close_handle<'a>(&self) -> CloseHandle<'a>
+            where
+                T: Send + 'a,
+            {
+                CloseHandle::new(self.chan.clone())
+            }
             /// Returns a unique identifier for the underlying channel.
             pub fn channel_id(&self) -> ChannelId {
                 self.chan.id()
             }
             /// Returns a future that resolves once the channel is closed.
-            pub fn closed(&self) -> ClosedFuture<'_, SP> {
+            pub fn closed(&self) -> ClosedFuture<'_> {
                 ClosedFuture::new(&self.chan)
             }
             /// Returns the capacity of the bounded channel.
@@ -676,24 +644,14 @@ macro_rules! channel_half {
             }
             $(
             /// Updates the backoff strategy.
-            pub fn with_backoff<B2: BackoffStrategy>(self) -> $ty<T, Ch, B2, SP> {
+            pub fn with_backoff<B2: BackoffStrategy>(self) -> $ty<T, Ch, B2> {
                 let _ = PhantomData::<$B>;
                 let this = ManuallyDrop::new(self);
                 internal::ChannelHalf::new(unsafe {Arc::from_raw(Arc::as_ptr(&this.chan))})
             }
             )?
         }
-        impl<T, Ch: Channel, $($B: BackoffStrategy)?> $ty<T, Ch, $($B,)? DefaultSyncPrimitives> {
-            /// Returns a [`CloseHandle`] that can close the channel or observe its closure
-            /// without holding this half.
-            pub fn close_handle<'a>(&self) -> CloseHandle<'a>
-            where
-                T: Send + 'a,
-            {
-                CloseHandle::new(self.chan.clone())
-            }
-        }
-        impl<T, Ch: Channel, $($B: BackoffStrategy,)? SP: SyncPrimitives> core::fmt::Debug for $ty<T, Ch, $($B,)? SP> {
+        impl<T, Ch: Channel, $($B: BackoffStrategy)?> core::fmt::Debug for $ty<T, Ch, $($B)?> {
             fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                 f.debug_tuple(stringify!($ty)).field(&self.chan).finish()
             }
@@ -702,10 +660,10 @@ macro_rules! channel_half {
 }
 macro_rules! tx_half {
     ($ty:ident $(<$B:ident>)? $(, $mut:tt)?) => {
-        impl<T, Ch: Channel, $($B: BackoffStrategy,)? SP: SyncPrimitives> $ty<T, Ch, $($B,)? SP> {
+        impl<T, Ch: Channel, $($B: BackoffStrategy)?> $ty<T, Ch, $($B)?> {
             /// Sends a message, waiting asynchronously if the channel is full.
             #[inline]
-            pub fn send(&$($mut)? self, msg: T) -> SendFuture<'_, T, Ch, backoff!($($B)?), SP> {
+            pub fn send(&$($mut)? self, msg: T) -> SendFuture<'_, T, Ch, backoff!($($B)?)> {
                 SendFuture::new(&self.chan, msg)
             }
             /// Sends a message, blocking the current thread if the channel is full.
@@ -740,7 +698,7 @@ macro_rules! tx_half {
 }
 macro_rules! utx_methods {
     ($ty:ident $(<$B:ident>)? $(, $mut:tt)?) => {
-        impl<T, Ch: Channel, $($B: BackoffStrategy,)? SP: SyncPrimitives> $ty<T, Ch, $($B,)? SP> {
+        impl<T, Ch: Channel, $($B: BackoffStrategy)?> $ty<T, Ch, $($B)?> {
             /// Sends a message. Never blocks or returns [`TrySendError::Full`] since the channel
             /// is unbounded.
             #[inline]
@@ -752,10 +710,10 @@ macro_rules! utx_methods {
 }
 macro_rules! rx_half {
     ($ty:ident $(<$B:ident>)? $(, $mut:tt)?) => {
-        impl<T, Ch: Channel, $($B: BackoffStrategy,)? SP: SyncPrimitives> $ty<T, Ch, $($B,)? SP> {
+        impl<T, Ch: Channel, $($B: BackoffStrategy)?> $ty<T, Ch, $($B)?> {
             /// Receives a message, waiting asynchronously if the channel is empty.
             #[inline]
-            pub fn recv(&$($mut)? self) -> RecvFuture<'_, T, Ch, backoff!($($B)?), SP> {
+            pub fn recv(&$($mut)? self) -> RecvFuture<'_, T, Ch, backoff!($($B)?)> {
                 RecvFuture::new(&self.chan)
             }
             /// Receives a message, blocking the current thread if the channel is empty.
@@ -795,13 +753,13 @@ macro_rules! rx_half {
 }
 macro_rules! cloneable_half {
     ($ty:ident $(<$B:ident>)?) => {
-        impl<T, Ch: Channel, $($B: BackoffStrategy,)? SP: SyncPrimitives> Clone for $ty<T, Ch, $($B,)? SP> {
+        impl<T, Ch: Channel, $($B: BackoffStrategy)?> Clone for $ty<T, Ch, $($B)?> {
             fn clone(&self) -> Self {
                 self.chan.clone_half(Half::$ty);
                 internal::ChannelHalf::raw_clone(self)
             }
         }
-        impl<T, Ch: Channel, $($B: BackoffStrategy,)? SP: SyncPrimitives> $ty<T, Ch, $($B,)? SP> {
+        impl<T, Ch: Channel, $($B: BackoffStrategy)?> $ty<T, Ch, $($B)?> {
             /// Returns a [`Weak`] reference that does not prevent the channel from being closed.
             pub fn downgrade(&self) -> Weak<Self> {
                 Weak::new(self)
@@ -819,20 +777,15 @@ macro_rules! backoff {
 }
 
 /// Single-producer sending half. Requires exclusive access (`&mut self`) to send.
-pub struct Tx<T, Ch: Channel, SP: SyncPrimitives = DefaultSyncPrimitives> {
-    chan: Arc<Chan<T, Ch, SP>>,
+pub struct Tx<T, Ch: Channel> {
+    chan: Arc<Chan<T, Ch>>,
 }
 tx_half!(Tx, mut);
 channel_half!(Tx);
 
 /// Multi-producer cloneable sending half.
-pub struct MTx<
-    T,
-    Ch: Channel,
-    B: BackoffStrategy = NoBackoff,
-    SP: SyncPrimitives = DefaultSyncPrimitives,
-> {
-    chan: Arc<Chan<T, Ch, SP>>,
+pub struct MTx<T, Ch: Channel, B: BackoffStrategy = NoBackoff> {
+    chan: Arc<Chan<T, Ch>>,
     _backoff: PhantomData<B>,
 }
 tx_half!(MTx<B>);
@@ -840,20 +793,15 @@ channel_half!(MTx<B>);
 cloneable_half!(MTx<B>);
 
 /// Single-producer unbounded sending half, which never blocks. Requires exclusive access (`&mut self`) to send.
-pub struct UTx<T, Ch: Channel, SP: SyncPrimitives = DefaultSyncPrimitives> {
-    chan: Arc<Chan<T, Ch, SP>>,
+pub struct UTx<T, Ch: Channel> {
+    chan: Arc<Chan<T, Ch>>,
 }
 utx_methods!(UTx, mut);
 channel_half!(UTx);
 
 /// Multi-producer cloneable unbounded sending half, which never blocks.
-pub struct UMTx<
-    T,
-    Ch: Channel,
-    B: BackoffStrategy = NoBackoff,
-    SP: SyncPrimitives = DefaultSyncPrimitives,
-> {
-    chan: Arc<Chan<T, Ch, SP>>,
+pub struct UMTx<T, Ch: Channel, B: BackoffStrategy = NoBackoff> {
+    chan: Arc<Chan<T, Ch>>,
     _backoff: PhantomData<B>,
 }
 utx_methods!(UMTx<B>);
@@ -861,37 +809,32 @@ channel_half!(UMTx<B>);
 cloneable_half!(UMTx<B>);
 
 /// Single-consumer receiving half. Requires exclusive access (`&mut self`) to receive.
-pub struct Rx<T, Ch: Channel, SP: SyncPrimitives = DefaultSyncPrimitives> {
-    chan: Arc<Chan<T, Ch, SP>>,
+pub struct Rx<T, Ch: Channel> {
+    chan: Arc<Chan<T, Ch>>,
 }
 rx_half!(Rx, mut);
 channel_half!(Rx);
 
 /// Multi-consumer cloneable receiving half.
-pub struct MRx<
-    T,
-    Ch: Channel,
-    B: BackoffStrategy = NoBackoff,
-    SP: SyncPrimitives = DefaultSyncPrimitives,
-> {
-    chan: Arc<Chan<T, Ch, SP>>,
+pub struct MRx<T, Ch: Channel, B: BackoffStrategy = NoBackoff> {
+    chan: Arc<Chan<T, Ch>>,
     _backoff: PhantomData<B>,
 }
 rx_half!(MRx<B>);
 channel_half!(MRx<B>);
 cloneable_half!(MRx<B>);
 
-impl<T, Ch: Channel, SP: SyncPrimitives> Rx<T, Ch, SP> {
+impl<T, Ch: Channel> Rx<T, Ch> {
     /// Poll-based receive for use in manual [`Future`] or
     /// [`Stream`](futures_core::stream::Stream) implementations.
     pub fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Result<T, RecvError>> {
-        const { assert!(size_of::<<Ch::RxWaiter<SP> as Waiter<SP>>::Wait<'static>>() == 0) };
+        const { assert!(size_of::<<Ch::RxWaiter as Waiter>::Wait<'static>>() == 0) };
         pin!(self.recv()).poll(cx)
     }
 }
 
 #[cfg(feature = "stream")]
-impl<T, Ch: Channel, SP: SyncPrimitives> futures_core::Stream for Rx<T, Ch, SP> {
+impl<T, Ch: Channel> futures_core::Stream for Rx<T, Ch> {
     type Item = T;
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.poll_recv(cx).map(Result::ok)

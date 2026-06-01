@@ -35,7 +35,7 @@ mpmc_send:
 	sub x0, x29, #24
 	add x3, x20, #24
 	mov x1, x9
-	bl chenal::channel::Chan<T,Ch,SP>::poll_acquire_slot_cold
+	bl chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold
 	ldur w8, [x29, #-24]
 	tbz w8, #0, .LBB18_7
 	mov w0, #2
@@ -80,7 +80,7 @@ mpmc_send:
 	ldp x29, x30, [sp, #96]
 	add sp, sp, #128
 	ret
-	bl <chenal::channel::SendFuture<T,Ch,B,SP> as core::future::future::Future>::poll::polled_after_completion
+	bl <chenal::channel::SendFuture<T,Ch,B> as core::future::future::Future>::poll::polled_after_completion
 	brk #0x1
 	mov x1, x8
 	bl <chenal::mpmc::array::Array<C,_> as chenal::internal::Channel>::write_slot::notify_receivers

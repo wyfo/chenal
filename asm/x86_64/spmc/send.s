@@ -53,7 +53,7 @@ spmc_send:
 .LBB6_10:
 	mov rsi, qword ptr [rax]
 	lea rdi, [rbx + 128]
-	call chenal::channel::Chan<T,Ch,SP>::poll_acquire_slot_cold
+	call chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold
 	cmp rax, 2
 	je .LBB6_8
 	test rax, rax

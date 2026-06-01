@@ -6,7 +6,7 @@ spmc_recv_blocking:
 	mov rcx, rax
 	shr rcx, 32
 	cmp eax, ecx
-	je .LBB13_9
+	je .LBB12_9
 	mov rdx, qword ptr [rbx + 544]
 	and rdx, rax
 	mov rcx, qword ptr [rbx + 528]
@@ -15,7 +15,7 @@ spmc_recv_blocking:
 	mov rsi, qword ptr [rbx + 536]
 	dec rsi
 	cmp rdx, rsi
-	jne .LBB13_3
+	jne .LBB12_3
 	mov esi, dword ptr [rbx + 544]
 	or esi, eax
 	inc esi
@@ -23,36 +23,36 @@ spmc_recv_blocking:
 	and rdx, rax
 	or rdx, rsi
 	lock cmpxchg	qword ptr [rbx + 256], rdx
-	je .LBB13_5
-.LBB13_9:
+	je .LBB12_5
+.LBB12_9:
 	mov dword ptr [rsp + 40], 1000000000
 	lea rsi, [rbx + 128]
 	mov rdi, rsp
 	lea rcx, [rsp + 16]
 	mov rdx, rax
-	call chenal::channel::Chan<T,Ch,SP>::acquire_slot_blocking_cold
+	call chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold
 	cmp byte ptr [rsp], 1
-	jne .LBB13_6
+	jne .LBB12_6
 	mov eax, 1
 	add rsp, 48
 	pop rbx
 	ret
-.LBB13_3:
+.LBB12_3:
 	lea rdx, [rax + 1]
 	lock cmpxchg	qword ptr [rbx + 256], rdx
-	jne .LBB13_9
-.LBB13_5:
+	jne .LBB12_9
+.LBB12_5:
 	mov qword ptr [rsp + 8], rcx
-.LBB13_6:
+.LBB12_6:
 	mov rdx, qword ptr [rsp + 8]
 	mov rsi, qword ptr [rbx + 512]
 	cmp rsi, 1
-	jbe .LBB13_7
+	jbe .LBB12_7
 	xor eax, eax
 	add rsp, 48
 	pop rbx
 	ret
-.LBB13_7:
+.LBB12_7:
 	add rbx, 480
 	mov rdi, rbx
 	mov rbx, rdx

@@ -51,7 +51,7 @@ mpmc_recv:
 .LBB12_9:
 	ldr x1, [x1]
 	add x2, x20, #8
-	bl chenal::channel::Chan<T,Ch,SP>::poll_acquire_slot_cold
+	bl chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold
 	cmp x0, #2
 	b.eq .LBB12_13
 	tbz w0, #0, .LBB12_15

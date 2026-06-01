@@ -36,7 +36,7 @@ mpsc_recv_blocking:
 	mov dword ptr [rsp + 40], 1000000000
 	mov rdi, rsp
 	lea r8, [rsp + 16]
-	call chenal::channel::Chan<T,Ch,SP>::acquire_slot_blocking_cold
+	call chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold
 	mov rdx, qword ptr [rsp]
 	test rdx, rdx
 	je .LBB7_9

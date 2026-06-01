@@ -44,7 +44,7 @@ mpmc_send_blocking:
 	add x1, x19, #128
 	add x3, sp, #16
 	str w8, [sp, #40]
-	bl chenal::channel::Chan<T,Ch,SP>::acquire_slot_blocking_cold
+	bl chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold
 	ldr x9, [sp]
 	cbz x9, .LBB18_8
 	ldr x8, [sp, #8]

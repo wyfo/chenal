@@ -6,8 +6,8 @@ spsc_recv:
 	ldr x2, [x19, #256]
 	mov w8, w2
 	cmp x8, x2, lsr #32
-	b.eq .LBB3_4
-.LBB3_1:
+	b.eq .LBB2_4
+.LBB2_1:
 	ldr x8, [x19, #544]
 	ldr x9, [x19, #536]
 	and x11, x2, #0xffffffff00000000
@@ -25,12 +25,12 @@ spsc_recv:
 	add x8, x19, #416
 	ldar x8, [x8]
 	cmp x8, #1
-	b.ls .LBB3_3
+	b.ls .LBB2_3
 	mov x0, xzr
 	ldr x19, [sp, #16]
 	ldp x29, x30, [sp], #32
 	ret
-.LBB3_3:
+.LBB2_3:
 	add x0, x19, #384
 	mov x19, x1
 	mov x1, x8
@@ -40,18 +40,18 @@ spsc_recv:
 	ldr x19, [sp, #16]
 	ldp x29, x30, [sp], #32
 	ret
-.LBB3_4:
+.LBB2_4:
 	ldr x1, [x1]
 	add x0, x19, #128
-	bl chenal::channel::Chan<T,Ch,SP>::poll_acquire_slot_cold
+	bl chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold
 	cmp x0, #2
-	b.eq .LBB3_6
+	b.eq .LBB2_6
 	cmp x0, #1
-	b.ne .LBB3_7
-.LBB3_6:
+	b.ne .LBB2_7
+.LBB2_6:
 	ldr x19, [sp, #16]
 	ldp x29, x30, [sp], #32
 	ret
-.LBB3_7:
+.LBB2_7:
 	mov x2, x1
-	b .LBB3_1
+	b .LBB2_1

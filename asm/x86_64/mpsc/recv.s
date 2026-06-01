@@ -36,7 +36,7 @@ mpsc_recv:
 	mov rdx, qword ptr [rsi]
 	lea rdi, [rsp + 8]
 	mov rsi, rax
-	call chenal::channel::Chan<T,Ch,SP>::poll_acquire_slot_cold
+	call chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold
 	mov eax, 2
 	cmp byte ptr [rsp + 8], 0
 	jne .LBB7_10
