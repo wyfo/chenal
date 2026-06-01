@@ -176,19 +176,12 @@ impl<T, Ch: internal::Channel> Chan<T, Ch> {
             Ok(slot) => Ch::write_slot(self, slot, msg)?,
             Err(err) => return Err((err, msg).into()),
         }
-        if Ch::WAKE_RX_AFTER_READ {
-            self.rx_waiter.wake();
-        }
         Ok(())
     }
 
     #[inline(always)]
     fn read_slot<E>(&self, slot: Ch::RxSlot<T>) -> Result<T, E> {
-        let msg = Ch::read_slot(self, slot);
-        if Ch::WAKE_TX_AFTER_READ {
-            self.tx_waiter.wake();
-        }
-        Ok(msg)
+        Ok(Ch::read_slot(self, slot))
     }
 
     #[inline(always)]

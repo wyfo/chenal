@@ -181,8 +181,9 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
                 }
                 Ok(())
             }
-            return handle_closed(chan, state);
+            handle_closed(chan, state)?;
         }
+        chan.rx_waiter.notify_one();
         Ok(())
     }
 
@@ -266,7 +267,8 @@ impl<C: Capacity, SP: SyncPrimitives> internal::Channel for Array<C, SP> {
     }
 
     #[inline(always)]
-    fn read_slot<T>(_chan: &Chan<T, Self>, msg: Self::RxSlot<T>) -> T {
+    fn read_slot<T>(chan: &Chan<T, Self>, msg: Self::RxSlot<T>) -> T {
+        chan.tx_waiter.wake_cold();
         msg
     }
 }

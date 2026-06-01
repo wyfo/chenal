@@ -174,8 +174,9 @@ impl<const BLOCK_SIZE: usize, C: Capacity> internal::Channel for Array<BLOCK_SIZ
                 }
                 Ok(())
             }
-            return handle_closed(chan, state);
+            handle_closed(chan, state)?;
         }
+        chan.rx_waiter.wake_cold();
         Ok(())
     }
 
@@ -184,7 +185,6 @@ impl<const BLOCK_SIZE: usize, C: Capacity> internal::Channel for Array<BLOCK_SIZ
     type RxSlot<T> = usize;
     type RxWaiter = SpmcWaker;
     type RxRefCount = ();
-    const WAKE_TX_AFTER_READ: bool = false;
 
     fn rx_init_state<T>(_storage: &Self::Storage<T>) -> Self::RxAtomicState<T> {
         AtomicUsize::new(0)

@@ -16,7 +16,6 @@ pub(crate) trait Waiter: Default + 'static {
         Self: 'a;
     unsafe fn register<'a>(&'a self, wait: Pin<&mut Self::Wait<'a>>, waker: &Waker) -> bool;
     unsafe fn unregister(&self);
-    fn wake(&self);
     fn close(&self);
 }
 
@@ -29,10 +28,6 @@ impl Waiter for SpmcWaker {
     #[inline(always)]
     unsafe fn unregister(&self) {
         unsafe { self.unregister() };
-    }
-    #[inline(always)]
-    fn wake(&self) {
-        self.wake_cold();
     }
     fn close(&self) {
         self.wake();
@@ -51,10 +46,6 @@ impl<SP: SyncPrimitives> Waiter for WaitQueue<SP> {
         some_wait.poll_wait(cx, true).is_pending()
     }
     unsafe fn unregister(&self) {}
-    #[inline(always)]
-    fn wake(&self) {
-        self.notify_one();
-    }
     fn close(&self) {
         self.close();
     }

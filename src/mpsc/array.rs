@@ -197,7 +197,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
 
     #[inline(always)]
     fn write_slot<T>(
-        _chan: &Chan<T, Self>,
+        chan: &Chan<T, Self>,
         (slot, tail): Self::TxSlot<T>,
         msg: T,
     ) -> Result<(), SendError<T>> {
@@ -207,6 +207,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
         unsafe { slot.as_ref().msg.with_ref_mut(|m| m.write(msg)) };
         let order = if UNBOUNDED_BACKOFF { Release } else { SeqCst };
         unsafe { slot.as_ref().stamp.store(tail, order) };
+        chan.rx_waiter.wake_cold();
         Ok(())
     }
 
@@ -215,7 +216,6 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: Sy
     type RxSlot<T> = (NonNull<Slot<T>>, usize);
     type RxWaiter = SpmcWaker;
     type RxRefCount = ();
-    const WAKE_TX_AFTER_READ: bool = false;
 
     fn rx_init_state<T>(_storage: &Self::Storage<T>) -> Self::RxAtomicState<T> {
         AtomicUsize::new(0)

@@ -57,6 +57,7 @@ spmc_send_blocking:
 	ldrb w8, [sp]
 	mov x1, x20
 	tbz w8, #0, .LBB6_3
+.LBB6_10:
 	mov w0, #1
 	ldp x20, x19, [sp, #64]
 	ldp x29, x30, [sp, #48]
@@ -72,8 +73,4 @@ spmc_send_blocking:
 	mov x1, x8
 	bl <chenal::spmc::array::Array<C,SP> as chenal::internal::Channel>::write_slot::handle_closed
 	tbz w0, #0, .LBB6_7
-	mov w0, #1
-	ldp x20, x19, [sp, #64]
-	ldp x29, x30, [sp, #48]
-	add sp, sp, #80
-	ret
+	b .LBB6_10

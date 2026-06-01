@@ -8,13 +8,13 @@ spmc_send_blocking:
 	mov rax, rdx
 	shr rax, 32
 	cmp edx, eax
-	je .LBB6_3
+	je .LBB6_10
 	mov rax, qword ptr [rbx + 552]
 	test rax, rax
-	jne .LBB6_3
+	jne .LBB6_10
 	mov qword ptr [rsp + 16], rdx
 	mov byte ptr [rsp + 8], 0
-.LBB6_4:
+.LBB6_3:
 	mov rsi, qword ptr [rsp + 16]
 	mov rax, qword ptr [rbx + 544]
 	and rax, rsi
@@ -24,34 +24,34 @@ spmc_send_blocking:
 	mov rcx, qword ptr [rbx + 536]
 	dec rcx
 	cmp rax, rcx
-	jne .LBB6_6
+	jne .LBB6_5
 	mov ecx, dword ptr [rbx + 544]
 	or ecx, esi
 	inc ecx
 	movabs rax, -4294967296
 	and rax, rsi
 	or rax, rcx
-	jmp .LBB6_7
-.LBB6_6:
+	jmp .LBB6_6
+.LBB6_5:
 	lea rax, [rsi + 1]
-.LBB6_7:
+.LBB6_6:
 	xchg qword ptr [rbx + 128], rax
 	mov rax, qword ptr [rbx + 552]
 	test rax, rax
-	jne .LBB6_8
-.LBB6_10:
+	jne .LBB6_12
+.LBB6_7:
 	mov rax, qword ptr [rbx + 384]
 	test al, 1
 	jne .LBB6_11
-.LBB6_12:
+.LBB6_8:
 	xor eax, eax
-.LBB6_13:
+.LBB6_9:
 	mov rdx, r14
 	add rsp, 56
 	pop rbx
 	pop r14
 	ret
-.LBB6_3:
+.LBB6_10:
 	mov dword ptr [rsp + 48], 1000000000
 	lea rsi, [rbx + 128]
 	lea rdi, [rsp + 8]
@@ -59,18 +59,18 @@ spmc_send_blocking:
 	call chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold
 	mov eax, 1
 	cmp byte ptr [rsp + 8], 0
-	je .LBB6_4
-	jmp .LBB6_13
+	je .LBB6_3
+	jmp .LBB6_9
 .LBB6_11:
 	add rbx, 384
 	mov rdi, rbx
 	call qword ptr [rip + aiq::queue::Queue<T,S,SP>::is_empty_locked@GOTPCREL]
-	jmp .LBB6_12
-.LBB6_8:
+	jmp .LBB6_8
+.LBB6_12:
 	lea rdi, [rbx + 128]
 	call qword ptr [rip + <chenal::spmc::array::Array<C,SP> as chenal::internal::Channel>::write_slot::handle_closed@GOTPCREL]
 	test al, 1
-	je .LBB6_10
+	je .LBB6_7
 	mov r14, rdx
 	mov eax, 1
-	jmp .LBB6_13
+	jmp .LBB6_9

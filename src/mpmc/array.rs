@@ -114,7 +114,6 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
     type TxSlot<T> = (NonNull<Slot<T>>, usize);
     type TxWaiter = WaitQueue<SP>;
     type TxRefCount = AtomicUsize;
-    const WAKE_RX_AFTER_READ: bool = false;
 
     fn tx_init_state<T>(storage: &Self::Storage<T>) -> Self::TxAtomicState<T> {
         let tail = 0;
@@ -314,7 +313,8 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool, SP: SyncPrimitives> internal::C
     }
 
     #[inline(always)]
-    fn read_slot<T>(_chan: &Chan<T, Self>, msg: Self::RxSlot<T>) -> T {
+    fn read_slot<T>(chan: &Chan<T, Self>, msg: Self::RxSlot<T>) -> T {
+        chan.tx_waiter.notify_one();
         msg
     }
 }
