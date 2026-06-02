@@ -345,6 +345,119 @@ pub mod chenal_mpmc_racy {
     }
 }
 
+pub mod chenal2 {
+    // type Backoff = ::chenal::backoff::ExponentialBackoff<3, false, true>;
+    type Backoff = ::chenal::backoff::NoBackoff;
+    type Array = chenal::mpsc::Array<1, usize, { !chenal::DEFAULT_UNBOUNDED_BACKOFF }>;
+
+    #[derive(Clone)]
+    pub struct Sender<T> {
+        inner: chenal::MTx<T, Array, Backoff>,
+    }
+    impl<T: std::fmt::Debug> Sender<T> {
+        pub async fn send(&mut self, message: T) {
+            self.inner.send(message).await.unwrap();
+        }
+    }
+
+    pub struct Receiver<T> {
+        inner: chenal::Rx<T, Array>,
+    }
+    impl<T> Receiver<T> {
+        pub async fn recv(&mut self) -> Option<T> {
+            self.inner.recv().await.ok()
+        }
+    }
+
+    pub fn channel<T>(capacity: usize) -> (Sender<T>, Receiver<T>) {
+        use chenal::Channel;
+        let (s, r) = Array::new(capacity).channel();
+        (
+            Sender {
+                inner: s.with_backoff(),
+            },
+            Receiver { inner: r },
+        )
+    }
+}
+
+pub mod chenal2_mpmc {
+    // type Backoff = ::chenal::backoff::ExponentialBackoff<3, false, true>;
+    type Backoff = ::chenal::backoff::NoBackoff;
+
+    type Array = chenal::mpmc::Array<usize, { !chenal::DEFAULT_UNBOUNDED_BACKOFF }>;
+
+    #[derive(Clone)]
+    pub struct Sender<T> {
+        inner: chenal::MTx<T, Array, Backoff>,
+    }
+    impl<T: std::fmt::Debug> Sender<T> {
+        pub async fn send(&mut self, message: T) {
+            self.inner.send(message).await.unwrap();
+        }
+    }
+
+    pub struct Receiver<T> {
+        inner: chenal::MRx<T, Array, Backoff>,
+    }
+    impl<T> Receiver<T> {
+        pub async fn recv(&mut self) -> Option<T> {
+            self.inner.recv().await.ok()
+        }
+    }
+
+    pub fn channel<T>(capacity: usize) -> (Sender<T>, Receiver<T>) {
+        use chenal::Channel;
+        let (s, r) = Array::new(capacity).channel();
+        (
+            Sender {
+                inner: s.with_backoff(),
+            },
+            Receiver {
+                inner: r.with_backoff(),
+            },
+        )
+    }
+}
+
+pub mod chenal2_mpmc_racy {
+    // type Backoff = ::chenal::backoff::ExponentialBackoff<3, false, true>;
+    type Backoff = ::chenal::backoff::NoBackoff;
+    type Array = chenal::mpmc::RacyArray<usize, { !chenal::DEFAULT_UNBOUNDED_BACKOFF }>;
+
+    #[derive(Clone)]
+    pub struct Sender<T> {
+        inner: chenal::MTx<T, Array, Backoff>,
+    }
+    impl<T: std::fmt::Debug> Sender<T> {
+        pub async fn send(&mut self, message: T) {
+            self.inner.send(message).await.unwrap();
+        }
+    }
+
+    pub struct Receiver<T> {
+        inner: chenal::MRx<T, Array, Backoff>,
+    }
+    impl<T> Receiver<T> {
+        pub async fn recv(&mut self) -> Option<T> {
+            self.inner.recv().await.ok()
+        }
+    }
+
+    pub fn channel<T>(capacity: usize) -> (Sender<T>, Receiver<T>) {
+        use chenal::Channel;
+        let (s, r) = chenal::mpmc::RacyArray::new(capacity).channel();
+        (
+            Sender {
+                inner: s.with_backoff(),
+            },
+            Receiver {
+                inner: r.with_backoff(),
+            },
+        )
+    }
+}
+
 pub mod crossfire {
     use ::crossfire as channel;
 
