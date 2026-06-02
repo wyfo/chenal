@@ -5,7 +5,11 @@ use std::{
     hint::black_box,
     marker::PhantomData,
     sync::{
-        atomic::{AtomicUsize, Ordering::Relaxed}, Arc, LazyLock, Mutex,
+        atomic::{
+            fence,
+            AtomicUsize,
+            Ordering::{Relaxed, SeqCst},
+        }, Arc, LazyLock, Mutex,
         Once,
     },
     thread,
@@ -82,7 +86,7 @@ impl<T: Default, S: BlockingSender<T>, R: BlockingReceiver<T>> Runner<S, R> for 
         let atomic = AtomicUsize::new(0);
         for _ in 0..msg_count {
             sender.send(black_box(T::default()));
-            atomic.fetch_add(1, Relaxed);
+            atomic.fetch_add(1, SeqCst);
         }
     }
 
@@ -90,7 +94,7 @@ impl<T: Default, S: BlockingSender<T>, R: BlockingReceiver<T>> Runner<S, R> for 
         let atomic = AtomicUsize::new(0);
         for _ in 0..msg_count {
             black_box(receiver.recv());
-            atomic.fetch_add(1, Relaxed);
+            atomic.fetch_add(1, SeqCst);
         }
     }
 }
@@ -101,7 +105,7 @@ impl<T: Default, S: AsyncSender<T>, R: AsyncReceiver<T>> Runner<S, R> for Async<
         block_on(async move {
             for _ in 0..msg_count {
                 sender.send(black_box(T::default())).await;
-                atomic.fetch_add(1, Relaxed);
+                atomic.fetch_add(1, SeqCst);
             }
         })
     }
@@ -111,7 +115,7 @@ impl<T: Default, S: AsyncSender<T>, R: AsyncReceiver<T>> Runner<S, R> for Async<
         block_on(async move {
             for _ in 0..msg_count {
                 black_box(receiver.recv().await);
-                atomic.fetch_add(1, Relaxed);
+                atomic.fetch_add(1, SeqCst);
             }
         })
     }
@@ -150,10 +154,9 @@ fn seq<T: Default + Debug + Unpin + 'static, S: Sender<T>, R: Receiver<T>>(
 ) -> Duration {
     let (mut tx, mut rx) = channel(MESSAGE_COUNT);
     let mut start = Instant::now();
-    let atomic = AtomicUsize::new(0);
     for _ in 0..MESSAGE_COUNT {
         tx.try_send(black_box(T::default()));
-        atomic.fetch_add(1, Relaxed);
+        fence(SeqCst);
     }
     if !recv {
         assert!(send);
@@ -163,7 +166,7 @@ fn seq<T: Default + Debug + Unpin + 'static, S: Sender<T>, R: Receiver<T>>(
     }
     for _ in 0..MESSAGE_COUNT {
         black_box(rx.try_recv());
-        atomic.fetch_add(1, Relaxed);
+        fence(SeqCst);
     }
     start.elapsed()
 }
@@ -240,9 +243,8 @@ macro_rules! bench_channel {
 
 fn bench(c: &mut Criterion) {
     bench_channel!(c, async_channel, mpmc(async));
-    bench_channel!(c, chenal, mpmc, mpsc, spmc, spsc);
-    bench_channel!(c, chenal_32, mpsc, spsc);
-    bench_channel!(c, chenal_loop, mpmc, mpsc, spmc, spsc);
+    bench_channel!(c, chenal, mpmc, mpmc_racy, mpsc, spmc, spsc);
+    bench_channel!(c, chenal_loop, mpmc, mpmc_racy, mpsc, spmc, spsc);
     bench_channel!(c, chenal_32, mpsc, spsc);
     bench_channel!(c, crossfire, mpmc, mpsc, spsc);
     bench_channel!(c, crossbeam, mpmc(blocking));

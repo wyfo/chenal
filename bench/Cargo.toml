@@ -12,8 +12,7 @@ harness = false
 
 [dependencies]
 async-channel = "2.5.0"
-chenal = { path = "..", features = ["blocking"] }
-criterion = { version = "0.8.2", features = ["async_tokio"] }
+chenal = { path = "..", features = ["blocking", "racy"] }
 crossbeam-channel = "0.5.15"
 crossbeam-utils = "0.8.21"
 crossfire = "3.1.7"
@@ -23,3 +22,6 @@ kanal = "0.1.1"
 postage = "0.5.0"
 tachyonix = "0.3.1"
 tokio = { version = "1.51.1", features = ["sync", "rt-multi-thread", "macros"] }
+
+[dev-dependencies]
+criterion = { version = "0.8.2", features = ["async_tokio"] }

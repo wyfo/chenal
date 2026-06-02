@@ -1,7 +1,11 @@
 //! MPMC channel implementations.
 mod array;
+#[cfg(feature = "racy")]
+mod racy_array;
 
 pub use array::Array;
+#[cfg(feature = "racy")]
+pub use racy_array::RacyArray;
 
 use crate::{backoff::NoBackoff, channel, channel::Channel};
 

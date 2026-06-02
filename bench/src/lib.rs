@@ -1,34 +1,8 @@
-use ::std::{fmt, future::Future};
-
-pub const CAPACITIES: &[usize] = &[64, 256, 1024, 16384];
-pub const N_MSGS: usize = 100_000;
-
-pub fn sender_counts() -> Vec<usize> {
-    let par = ::std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(4);
-    let last = par.saturating_sub(1).max(4);
-    let mut v = vec![1usize, 2, 4];
-    if !v.contains(&last) {
-        v.push(last);
-    }
-    v
-}
-
-#[derive(Clone, Copy, PartialEq)]
-pub enum RecvWork {
-    None,
-    Spin,
-}
-
-impl fmt::Display for RecvWork {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            RecvWork::None => "none",
-            RecvWork::Spin => "spin",
-        })
-    }
-}
+use ::std::{
+    fmt,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 pub mod async_channel;
 pub mod chenal;
@@ -55,7 +29,6 @@ pub trait BlockingSender<T>: Sender<T> {
 }
 
 pub trait AsyncSender<T>: Sender<T> {
-    // `&mut self` because of `Sink` channels
     fn send(&mut self, msg: T) -> impl Future<Output = ()> + Send + '_;
 }
 
@@ -71,4 +44,52 @@ pub trait BlockingReceiver<T>: Receiver<T> {
 
 pub trait AsyncReceiver<T>: Receiver<T> {
     fn recv(&mut self) -> impl Future<Output = T> + Send + '_;
+}
+
+trait Unwrappable {
+    type Output;
+    fn unwrap(self) -> Self::Output;
+}
+impl<T> Unwrappable for Option<T> {
+    type Output = T;
+    fn unwrap(self) -> Self::Output {
+        self.unwrap()
+    }
+}
+impl<T, E: fmt::Debug> Unwrappable for Result<T, E> {
+    type Output = T;
+    fn unwrap(self) -> Self::Output {
+        self.unwrap()
+    }
+}
+
+struct UnwrapFuture<F>(F);
+impl<F: Future<Output: Unwrappable>> Future for UnwrapFuture<F> {
+    type Output = <F::Output as Unwrappable>::Output;
+
+    #[inline(always)]
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        unsafe { self.map_unchecked_mut(|this| &mut this.0) }
+            .poll(cx)
+            .map(Unwrappable::unwrap)
+    }
+}
+
+trait FutureExt: Sized {
+    fn unwrap(self) -> UnwrapFuture<Self>;
+}
+impl<F: Future<Output: Unwrappable>> FutureExt for F {
+    fn unwrap(self) -> UnwrapFuture<Self> {
+        UnwrapFuture(self)
+    }
+}
+
+#[unsafe(no_mangle)]
+fn tachyonix_send(tx: &mut ::tachyonix::Sender<usize>, msg: usize) {
+    Sender::try_send(tx, msg);
+}
+
+#[unsafe(no_mangle)]
+fn chenal_send(tx: &mut ::chenal::mpsc::MTx<usize>, msg: usize) {
+    Sender::try_send(tx, msg);
 }

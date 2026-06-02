@@ -1,9 +1,13 @@
 //! MPSC channel implementations.
+use crate::{backoff::NoBackoff, channel, channel::Channel};
+
 mod array;
+#[doc(hidden)]
+mod vyukov;
 
 pub use array::Array;
-
-use crate::{backoff::NoBackoff, channel, channel::Channel};
+#[doc(hidden)]
+pub use vyukov::VyukovMpsc;
 
 /// Alias of `MTx<T, mpsc::Array>`.
 pub type MTx<T, B = NoBackoff> = channel::MTx<T, Array, B>;

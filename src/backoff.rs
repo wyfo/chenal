@@ -33,6 +33,9 @@ impl BackoffStrategy for NoBackoff {
     }
 }
 
+// ///
+// pub type NoBackoff = ExponentialBackoff<6, true, true>;
+
 /// Calls [`spin_loop`] and reload the atomic.
 pub struct SpinReload;
 

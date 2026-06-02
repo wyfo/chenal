@@ -31,12 +31,14 @@ std::thread::scope(|s| {
 
 ## Comparison with other channel crates
 
-### [`crossbeam_channel`](https://docs.rs/crossbeam-channel/latest/crossbeam_channel/) / [`std::sync::mpsc`](https://doc.rust-lang.org/std/sync/mpsc/)
+### [`std::sync::mpsc`](https://doc.rust-lang.org/std/sync/mpsc/)
 
-`crossbeam_channel`, the crate behind `std::sync::mpsc`, is a synchronous MPMC channel and surely the most known in the ecosystem. But it doesn't provide an optimized algorithm for the MPSC use case.
+`std::sync::mpsc` wraps `crossbeam-channel` behind the scene, so it is discussed in the dedicated section.
+
+### [`crossbeam_channel`](https://docs.rs/crossbeam-channel/latest/crossbeam_channel/)
+
+`crossbeam_channel` is a synchronous MPMC channel and surely the most known in the ecosystem. It implements Dmitry Vyukov MPMC 
 On its own benchmark, `chenal` is 2x faster than `crossbeam_channel` on average.
-
-Regarding `std::sync::mpsc`, there is one notable difference in its API; while `chenal` and most other MPSCs use `&mut self` methods on the receiver, `std::sync::mpsc::Receiver` uses `&self` but is `!Sync` in exchange.
 
 ### [`tokio::sync::mpsc`](https://docs.rs/tokio/latest/tokio/sync/mpsc/)
 
@@ -44,18 +46,23 @@ Tokio's MPSC has notable differences from most other MPSC implementations such a
 - it is de facto provided by the most ubiquitous asynchronous runtime of the Rust ecosystem
 - it uses a lazily-allocated block-based algorithm
 - it has a permit reservation system which provides fairness
+- TODO budget
 
 On the other hand, it's one of the least performant MPSC, especially due to a high number of atomic RMW operations.
 
 ### [`tachyonix`](https://docs.rs/tachyonix/latest/tachyonix/)
 
-`tachyonix` is a standalone async-only MPSC "which only claim to fame is to be extremely fast". In `tachyonix`'s own benchmark, `chenal` is between 1.5x and 10x faster.
+`tachyonix` is a standalone async-only MPSC. In `tachyonix`'s own benchmark, `chenal` is between 1.5x and 10x faster.
 
-### [`kanal`](https://docs.rs/kanal/latest/kanal/)
+### [`kanal`](https://docs.rs/kanal/latest/kanal/) and [`flume`](https://docs.rs/flume/latest/flume/)
 
-`kanal` is an MPMC channel inspired from Go which pretends to be faster than any other competitor. However, it uses a lock-based algorithm, which means every operation performs at least two atomic RMW operations, vs. one for `chenal`, not to mention other (spin-)lock drawbacks. In `kanal`'s own benchmark, `chenal` is 3x faster on average.
+`kanal` is an MPMC channel inspired from Go. However, it uses a lock-based algorithm, which means every operation performs at least two atomic RMW operations, vs. one for `chenal`, not to mention other (spin-)lock drawbacks. In `kanal`'s own benchmark, `chenal` is 3x faster on average.
 
 `kanal` is also not async-friendly, as its operations are not [cancel-safe](https://github.com/fereidani/kanal/issues/24).
+
+### [`flume`](https://docs.rs/flume/latest/flume/)
+
+`flume` is also a lock-based MPMC channel, but using 100% safe code. 
 
 ### [`crossfire`](https://docs.rs/crossfire/latest/crossfire/)
 
@@ -83,13 +90,17 @@ The algorithms are optimized to minimize atomic operations and contention. Each 
 
 Unlike the classical MPMC channel algorithm by Dmitry Vyukov (used in `crossbeam_channel` or `tachyonix`), channel slots are never written by the receiver, reducing contention on their cache lines. As a tradeoff, channel's capacity is limited to 2^31 on 64-bit platforms, which should be enough for most use cases.
 
+## About benchmarks
+
+Benchmarking can be hard, and benchmarking concurrent algorithms is notoriously hard. Good result in a benchmark necessarily doesn't necessarily mean the algorithm will be performant in real situation. On the other hand, an algorithm can perform badly in a benchmark because it is more performant.
+
 ## Safety and soundness
 
-Like any other lock-free channel implementation, this crate uses unsafe code. It is [extensively tested](https://github.com/wyfo/chenal/actions/runs/26308911686) with [miri](https://github.com/rust-lang/miri) to ensure its safety.
+Like any other lock-free channel implementation, this crate uses unsafe code. It is [extensively tested](https://github.com/wyfo/chenal/actions/runs/26644156265) with [miri](https://github.com/rust-lang/miri) and [loom](https://github.com/tokio-rs/loom) to ensure its safety.
 
 MPMC and SPMC channels' algorithms rely on an **undefined behavior** in the Rust memory model (not LLVM's one), which is known to [work in practice](https://github.com/rust-lang/unsafe-code-guidelines/blob/master/resources/deliberate-ub.md) and is used in other widespread algorithms like SeqLocks.
 
-Progress on a sound alternative is tracked in [RFC 3301](https://github.com/rust-lang/rfcs/pull/3301).
+Progress on a sound alternative is tracked in [RFC 3301](https://github.com/rust-lang/rfcs/pull/3301)
 
 ## License
 

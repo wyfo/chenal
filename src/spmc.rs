@@ -1,9 +1,13 @@
 //! SPMC channel implementations.
+use crate::{backoff::NoBackoff, channel, channel::Channel};
+
 mod array;
+#[cfg(feature = "racy")]
+mod racy_array;
 
 pub use array::Array;
-
-use crate::{backoff::NoBackoff, channel, channel::Channel};
+#[cfg(feature = "racy")]
+pub use racy_array::RacyArray;
 
 /// Alias of `MTx<T, spmc::Array>`.
 pub type Tx<T> = channel::Tx<T, Array>;

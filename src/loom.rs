@@ -1,6 +1,7 @@
 #[cfg(feature = "std")]
 extern crate std;
 
+#[cfg(feature = "racy")]
 use core::mem::MaybeUninit;
 #[cfg(not(loom))]
 pub(crate) use core::*;
@@ -138,7 +139,7 @@ pub(crate) trait UnsafeCellExt<T> {
 }
 
 impl<T> UnsafeCellExt<T> for cell::UnsafeCell<T> {
-    #[cfg_attr(loom, track_caller)]
+    #[track_caller]
     unsafe fn with_ref<'a, R, F: FnOnce(&'a T) -> R>(&'a self, f: F) -> R
     where
         T: 'a,
@@ -148,7 +149,7 @@ impl<T> UnsafeCellExt<T> for cell::UnsafeCell<T> {
         #[cfg(loom)]
         return self.with(|ptr| f(unsafe { &*ptr }));
     }
-    #[cfg_attr(loom, track_caller)]
+    #[track_caller]
     unsafe fn with_ref_mut<'a, R, F: FnOnce(&'a mut T) -> R>(&'a self, f: F) -> R
     where
         T: 'a,
@@ -160,14 +161,17 @@ impl<T> UnsafeCellExt<T> for cell::UnsafeCell<T> {
     }
 }
 
+#[cfg(feature = "racy")]
 #[cfg(not(racy_test))]
 pub(crate) struct RacyCell<T>(core::cell::UnsafeCell<MaybeUninit<T>>);
+#[cfg(feature = "racy")]
 #[cfg(racy_test)]
 pub(crate) struct RacyCell<T> {
     atomic: sync::atomic::AtomicPtr<()>,
     _phantom: core::marker::PhantomData<T>,
 }
 
+#[cfg(feature = "racy")]
 impl<T> RacyCell<T> {
     #[cfg(not(racy_test))]
     pub(crate) fn new() -> Self {
@@ -185,7 +189,6 @@ impl<T> RacyCell<T> {
 
     #[cfg(not(racy_test))]
     pub(crate) unsafe fn write_racy(&self, t: T) {
-        sync::atomic::fence(sync::atomic::Ordering::Release);
         unsafe { (*self.0.get()).write(t) };
     }
 

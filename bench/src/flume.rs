@@ -1,4 +1,4 @@
-use crate::{AsyncReceiver, AsyncSender, BlockingReceiver, BlockingSender, Receiver, Sender};
+use crate::{AsyncReceiver, AsyncSender, BlockingReceiver, BlockingSender, FutureExt as _, Receiver, Sender};
 
 pub mod mpmc {
     pub use flume::{bounded as async_channel, bounded as blocking_channel};
@@ -21,8 +21,8 @@ impl<T: Send + 'static> BlockingSender<T> for flume::Sender<T> {
 }
 
 impl<T: Send + 'static> AsyncSender<T> for flume::Sender<T> {
-    async fn send(&mut self, msg: T) {
-        (*self).send_async(msg).await.unwrap();
+    fn send(&mut self, msg: T) -> impl Future<Output = ()> + Send + '_ {
+        (*self).send_async(msg).unwrap()
     }
 }
 
@@ -43,7 +43,7 @@ impl<T: Send + 'static> BlockingReceiver<T> for flume::Receiver<T> {
 }
 
 impl<T: Send + 'static> AsyncReceiver<T> for flume::Receiver<T> {
-    async fn recv(&mut self) -> T {
-        (*self).recv_async().await.unwrap()
+    fn recv(&mut self) -> impl Future<Output = T> + Send + '_ {
+        (*self).recv_async().unwrap()
     }
 }

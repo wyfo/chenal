@@ -3,8 +3,8 @@ use core::{
     mem::MaybeUninit,
     ptr::NonNull,
     sync::atomic::{
-        Ordering::{AcqRel, Acquire, Relaxed, Release, SeqCst},
         fence,
+        Ordering::{Acquire, Relaxed, Release, SeqCst},
     },
 };
 
@@ -12,14 +12,14 @@ use aiq::WaitQueue;
 use spmc_waker::SpmcWaker;
 
 use crate::{
-    Channel, DEFAULT_UNBOUNDED_BACKOFF, MTx, Rx,
-    array::{HB_SHIFT, LB, Slots},
-    backoff::{Backoff, BackoffStrategy},
-    capacity::Capacity,
-    channel::{BoundedChannel, Chan},
+    array::{Slots, HB_SHIFT, LB}, backoff::{Backoff, BackoffStrategy}, capacity::Capacity, channel::{BoundedChannel, Chan},
     errors::{SendError, TryAcquireError},
     internal,
-    loom::{AtomicUsizeExt, UnsafeCellExt, cell::UnsafeCell, sync::atomic::AtomicUsize},
+    loom::{cell::UnsafeCell, sync::atomic::AtomicUsize, AtomicUsizeExt, UnsafeCellExt},
+    Channel,
+    MTx,
+    Rx,
+    DEFAULT_UNBOUNDED_BACKOFF,
 };
 
 /// Bounded MPSC channel implementation.
@@ -99,7 +99,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool> intern
     }
 
     fn close<T>(chan: &Chan<T, Self>) {
-        let ordering = if UNBOUNDED_BACKOFF { SeqCst } else { AcqRel };
+        let ordering = if UNBOUNDED_BACKOFF { SeqCst } else { Relaxed };
         chan.tx_state.fetch_or(chan.closed_flag(), ordering);
     }
 
@@ -136,8 +136,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool> intern
             return Err(state);
         }
         let ordering = if UNBOUNDED_BACKOFF { SeqCst } else { Relaxed };
-        chan.tx_state
-            .compare_exchange_weak(state, state + 1, ordering, Relaxed)?;
+        (chan.tx_state).compare_exchange_weak(state, state + 1, ordering, Relaxed)?;
         let slot = unsafe { chan.get_unchecked(tail_idx) }.into();
         Ok((slot, tail))
     }
@@ -198,8 +197,8 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool> intern
             fence(Acquire);
         }
         unsafe { slot.as_ref().msg.with_ref_mut(|m| m.write(msg)) };
-        let order = if UNBOUNDED_BACKOFF { Release } else { SeqCst };
-        unsafe { slot.as_ref().stamp.store(tail, order) };
+        let ordering = if UNBOUNDED_BACKOFF { Release } else { SeqCst };
+        unsafe { slot.as_ref().stamp.store(tail, ordering) };
         chan.rx_waiter.wake_cold();
         Ok(())
     }

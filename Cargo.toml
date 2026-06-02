@@ -19,6 +19,7 @@ blocking = ["std"]
 compat-tokio = ["dep:tokio"]
 compat-tokio-time = ["compat-tokio", "tokio/time"]
 compat-std = ["blocking"]
+racy = []
 std = ["aiq/std", "crossbeam-utils/std"]
 stream = ["dep:futures-core"]
 
@@ -52,8 +53,16 @@ name = "mpmc_array"
 required-features = ["blocking"]
 
 [[test]]
+name = "mpmc_racy_array"
+required-features = ["blocking", "racy"]
+
+[[test]]
 name = "spmc_array"
 required-features = ["blocking"]
+
+[[test]]
+name = "spmc_racy_array"
+required-features = ["blocking", "racy"]
 
 [[test]]
 name = "spsc_array"

@@ -20,6 +20,19 @@ pub mod mpmc {
     }
 }
 
+pub mod mpmc_racy {
+    pub use channel as async_channel;
+    pub use channel as blocking_channel;
+    use chenal::{mpmc::RacyArray, Channel};
+
+    use super::{MRx, MTx};
+
+    pub fn channel<T>(capacity: usize) -> (MTx<T, RacyArray>, MRx<T, RacyArray>) {
+        let (tx, rx) = RacyArray::new(capacity).channel();
+        (MTx(tx), MRx(rx))
+    }
+}
+
 pub mod mpsc {
     pub use channel as async_channel;
     pub use channel as blocking_channel;

@@ -1,4 +1,4 @@
-use crate::{AsyncReceiver, AsyncSender, Receiver, Sender};
+use crate::{AsyncReceiver, AsyncSender, FutureExt as _, Receiver, Sender};
 
 pub mod mpmc {
     pub use async_channel::bounded as async_channel;
@@ -15,8 +15,8 @@ impl<T: Send + 'static> Sender<T> for async_channel::Sender<T> {
 }
 
 impl<T: Send + 'static> AsyncSender<T> for async_channel::Sender<T> {
-    async fn send(&mut self, msg: T) {
-        (*self).send(msg).await.unwrap();
+    fn send(&mut self, msg: T) -> impl Future<Output = ()> + Send + '_ {
+        (*self).send(msg).unwrap()
     }
 }
 
@@ -31,7 +31,7 @@ impl<T: Send + 'static> Receiver<T> for async_channel::Receiver<T> {
 }
 
 impl<T: Send + 'static> AsyncReceiver<T> for async_channel::Receiver<T> {
-    async fn recv(&mut self) -> T {
-        (*self).recv().await.unwrap()
+    fn recv(&mut self) -> impl Future<Output = T> + Send + '_ {
+        (*self).recv().unwrap()
     }
 }

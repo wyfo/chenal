@@ -1,9 +1,9 @@
 //! SPSC channel implementations.
+use crate::{channel, channel::Channel};
+
 mod array;
 
 pub use array::Array;
-
-use crate::{channel, channel::Channel};
 
 /// Alias of `Tx<T, spsc::Array>`.
 pub type Tx<T> = channel::Tx<T, Array>;
