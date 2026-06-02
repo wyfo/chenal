@@ -16,9 +16,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: funnel
-        run: cd tachyobench; cargo run --release funnel-chenal; cargo run --release funnel-crossfire; pinball-tachyonix
+        run: cd tachyobench; cargo run --release funnel-chenal; cargo run --release funnel-crossfire; cargo run --release funnel-tachyonix
       - name: pinball
-        run: cd tachyobench; cargo run --release pinball-chenal; cargo run --release pinball-crossfire; pinball-tachyonix
+        run: cd tachyobench; cargo run --release pinball-chenal; cargo run --release pinball-crossfire; cargo run --release pinball-tachyonix
       - name: seq
         run: cd bench; cargo bench ".*/.*/seq/msg_size=1$" -- --quick
       - name: blocking spsc
