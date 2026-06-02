@@ -6,9 +6,9 @@ use std::{
     marker::PhantomData,
     sync::{
         atomic::{
-            fence,
             AtomicUsize,
-            Ordering::{Relaxed, SeqCst},
+            Ordering::{Relaxed, SeqCst}
+            ,
         }, Arc, LazyLock, Mutex,
         Once,
     },
@@ -156,7 +156,7 @@ fn seq<T: Default + Debug + Unpin + 'static, S: Sender<T>, R: Receiver<T>>(
     let mut start = Instant::now();
     for _ in 0..MESSAGE_COUNT {
         tx.try_send(black_box(T::default()));
-        fence(SeqCst);
+        // fence(SeqCst);
     }
     if !recv {
         assert!(send);
@@ -166,7 +166,7 @@ fn seq<T: Default + Debug + Unpin + 'static, S: Sender<T>, R: Receiver<T>>(
     }
     for _ in 0..MESSAGE_COUNT {
         black_box(rx.try_recv());
-        fence(SeqCst);
+        // fence(SeqCst);
     }
     start.elapsed()
 }

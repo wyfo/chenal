@@ -2,22 +2,22 @@ use core::{
     cmp,
     ptr::NonNull,
     sync::atomic::{
-        fence,
         Ordering::{Acquire, Relaxed, Release, SeqCst},
+        fence,
     },
 };
 
 use aiq::WaitQueue;
 
 use crate::{
-    array::{Slots, HB_SHIFT, LB}, backoff::{Backoff, BackoffStrategy}, capacity::Capacity, channel::{BoundedChannel, Chan},
+    Channel, DEFAULT_UNBOUNDED_BACKOFF, MRx, MTx,
+    array::{HB_SHIFT, LB, Slots},
+    backoff::{Backoff, BackoffStrategy},
+    capacity::Capacity,
+    channel::{BoundedChannel, Chan},
     errors::{SendError, TryAcquireError},
     internal,
-    loom::{sync::atomic::AtomicUsize, AtomicUsizeExt, RacyCell},
-    Channel,
-    MRx,
-    MTx,
-    DEFAULT_UNBOUNDED_BACKOFF,
+    loom::{AtomicUsizeExt, RacyCell, sync::atomic::AtomicUsize},
 };
 
 /// Bounded MPMC channel implementation.

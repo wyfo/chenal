@@ -1,10 +1,10 @@
 use crate::{
-    backoff::BackoffStrategy, capacity::Capacity, channel::{BoundedChannel, Chan}, errors::{SendError, TryAcquireError},
+    Channel, DEFAULT_UNBOUNDED_BACKOFF, MRx, Tx,
+    backoff::BackoffStrategy,
+    capacity::Capacity,
+    channel::{BoundedChannel, Chan},
+    errors::{SendError, TryAcquireError},
     internal,
-    Channel,
-    MRx,
-    Tx,
-    DEFAULT_UNBOUNDED_BACKOFF,
 };
 
 /// Bounded SPMC channel implementation.

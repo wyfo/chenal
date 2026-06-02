@@ -3,8 +3,8 @@ use core::{
     mem::MaybeUninit,
     ptr::NonNull,
     sync::atomic::{
-        fence,
         Ordering::{Acquire, Relaxed, Release, SeqCst},
+        fence,
     },
 };
 
@@ -12,14 +12,14 @@ use aiq::WaitQueue;
 use spmc_waker::SpmcWaker;
 
 use crate::{
-    array::{Slots, HB_SHIFT, LB}, backoff::{Backoff, BackoffStrategy}, capacity::Capacity, channel::{BoundedChannel, Chan},
+    Channel, DEFAULT_UNBOUNDED_BACKOFF, MTx, Rx,
+    array::{HB_SHIFT, LB, Slots},
+    backoff::{Backoff, BackoffStrategy},
+    capacity::Capacity,
+    channel::{BoundedChannel, Chan},
     errors::{SendError, TryAcquireError},
     internal,
-    loom::{cell::UnsafeCell, sync::atomic::AtomicUsize, AtomicUsizeExt, UnsafeCellExt},
-    Channel,
-    MTx,
-    Rx,
-    DEFAULT_UNBOUNDED_BACKOFF,
+    loom::{AtomicUsizeExt, UnsafeCellExt, cell::UnsafeCell, sync::atomic::AtomicUsize},
 };
 
 /// Bounded MPSC channel implementation.

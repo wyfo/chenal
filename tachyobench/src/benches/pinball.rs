@@ -86,7 +86,7 @@ macro_rules! bench {
                                                 // of the received visitor and propagate
                                                 // it to another node randomly.
                                                 loop {
-                                                    tokio::task::consume_budget().await;
+                                                    // tokio::task::consume_budget().await;
                                                     let mut path_length = match r.recv().await {
                                                         // Stop if the wind-down signal
                                                         // is received or if all senders

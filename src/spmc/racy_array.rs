@@ -7,14 +7,14 @@ use aiq::WaitQueue;
 use spmc_waker::SpmcWaker;
 
 use crate::{
-    array::{Slots, HB_SHIFT, LB}, backoff::{Backoff, BackoffStrategy}, capacity::Capacity,
+    Channel, MRx, Tx,
+    array::{HB_SHIFT, LB, Slots},
+    backoff::{Backoff, BackoffStrategy},
+    capacity::Capacity,
     channel::{BoundedChannel, Chan},
     errors::{SendError, TryAcquireError},
     internal,
-    loom::{sync::atomic::AtomicUsize, AtomicUsizeExt, RacyCell},
-    Channel,
-    MRx,
-    Tx,
+    loom::{AtomicUsizeExt, RacyCell, sync::atomic::AtomicUsize},
 };
 
 /// Bounded SPMC channel implementation.

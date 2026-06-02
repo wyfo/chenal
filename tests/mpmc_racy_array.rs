@@ -5,9 +5,9 @@ use core::{
 use std::{sync::Arc, thread};
 
 use chenal::{
-    errors::{RecvError, SendError, TryRecvError, TrySendError}, mpmc::RacyArray, Channel,
-    MRx,
-    MTx,
+    Channel, MRx, MTx,
+    errors::{RecvError, SendError, TryRecvError, TrySendError},
+    mpmc::RacyArray,
 };
 #[cfg(not(loom))]
 use futures::executor::block_on;

@@ -42,7 +42,7 @@ macro_rules! bench {
                                             for _ in 0..(MESSAGES_PER_CHANNEL / SENDERS_PER_CHANNEL)
                                                 * SENDERS_PER_CHANNEL
                                             {
-                                                tokio::task::consume_budget().await;
+                                                // tokio::task::consume_budget().await;
                                                 r.recv().await.unwrap();
                                             }
                                         })

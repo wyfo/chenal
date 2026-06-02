@@ -8,14 +8,14 @@ use core::{
 use aiq::WaitQueue;
 
 use crate::{
-    array::Slots, backoff::{Backoff, BackoffStrategy}, capacity::Capacity, channel::{BoundedChannel, Chan},
+    Channel, DEFAULT_UNBOUNDED_BACKOFF, MRx, MTx,
+    array::Slots,
+    backoff::{Backoff, BackoffStrategy},
+    capacity::Capacity,
+    channel::{BoundedChannel, Chan},
     errors::{SendError, TryAcquireError},
     internal,
-    loom::{cell::UnsafeCell, sync::atomic::AtomicUsize, AtomicUsizeExt, UnsafeCellExt},
-    Channel,
-    MRx,
-    MTx,
-    DEFAULT_UNBOUNDED_BACKOFF,
+    loom::{AtomicUsizeExt, UnsafeCellExt, cell::UnsafeCell, sync::atomic::AtomicUsize},
 };
 
 /// Bounded MPMC channel implementation.
