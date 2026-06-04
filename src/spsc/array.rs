@@ -1,7 +1,7 @@
 use core::{
     mem::MaybeUninit,
     ops::Deref,
-    sync::atomic::Ordering::{Acquire, Relaxed, SeqCst},
+    sync::atomic::Ordering::{Relaxed, SeqCst},
 };
 
 use spmc_waker::SpmcWaker;
@@ -168,6 +168,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity> internal::Channel for Array<BLOCK_SIZ
                     && closed >> 2 != new_tail
                 {
                     debug_assert!(closed >> 2 == state & LB);
+                    chan.tx_state.store_seq_cst(state);
                     let slot = unsafe { chan.get_unchecked(state & chan.slot_mask()) };
                     let msg = unsafe { slot.with_ref(|m| m.assume_init_read()) };
                     return Err(SendError(msg));
@@ -213,12 +214,14 @@ impl<const BLOCK_SIZE: usize, C: Capacity> internal::Channel for Array<BLOCK_SIZ
         _backoff: bool,
     ) -> Result<Self::RxSlot<T>, TryAcquireError> {
         let head = *state & LB;
-        let closed = chan.closed.load(SeqCst);
         let mut tail = chan.tx_state.load(SeqCst) & LB;
-        if closed != 0
-            && let Err(closed) = (chan.closed).compare_exchange(1, 2 | (tail << 2), SeqCst, Acquire)
-        {
-            tail = closed >> 2;
+        let closed = chan.closed.load(SeqCst);
+        if closed != 0 {
+            tail = chan.tx_state.load(SeqCst) & LB;
+            if let Err(closed) = (chan.closed).compare_exchange(1, 2 | (tail << 2), SeqCst, SeqCst)
+            {
+                tail = closed >> 2;
+            }
         }
         if head == tail {
             return Err(if closed != 0 {

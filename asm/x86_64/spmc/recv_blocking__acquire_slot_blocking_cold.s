@@ -16,14 +16,27 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 .LBB9_1:
 	mov rax, r15
 	jmp .LBB9_2
-.LBB9_10:
-	cmp r8d, r9d
-	je .LBB9_11
-.LBB9_16:
-	mov eax, edi
-	shl r9, 32
-	or r9, rax
-	mov rdi, r9
+.LBB9_9:
+	mov rax, qword ptr [r14]
+	mov r9, qword ptr [r14 + 424]
+	test r9, r9
+	je .LBB9_10
+	mov rax, qword ptr [r14]
+	mov r9d, eax
+	lea r10, [4*r9 + 2]
+	mov eax, 1
+	lock cmpxchg	qword ptr [r14 + 424], r10
+	sete r10b
+	shr rax, 2
+	test r10b, r10b
+	cmovne rax, r9
+	cmp r8, rax
+	je .LBB9_17
+.LBB9_13:
+	mov edi, edi
+	shl rax, 32
+	or rax, rdi
+	mov rdi, rax
 .LBB9_6:
 	mov rax, qword ptr [r14 + 400]
 	mov rsi, qword ptr [rax + 8*rsi]
@@ -57,24 +70,15 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	mov rax, qword ptr [r14 + 128]
 	cmp rax, r15
 	jne .LBB9_2
-	mov rax, qword ptr [r14 + 424]
-	mov r9, qword ptr [r14]
-	mov r9d, r9d
-	test rax, rax
-	je .LBB9_10
-	lea r10, [4*r9 + 2]
-	mov eax, 1
-	lock cmpxchg	qword ptr [r14 + 424], r10
-	sete r10b
-	shr rax, 2
-	test r10b, r10b
-	cmove r9, rax
-	cmp r8, r9
-	jne .LBB9_16
-	jmp .LBB9_20
-.LBB9_11:
+	jmp .LBB9_9
+.LBB9_10:
+	cmp r8d, eax
+	je .LBB9_22
+	mov eax, eax
+	jmp .LBB9_13
+.LBB9_22:
 	test dl, 1
-	je .LBB9_25
+	je .LBB9_23
 	mov r13, rcx
 	mov rdi, rcx
 	mov r12, r11
@@ -84,12 +88,12 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	mov rcx, r13
 	mov r11, r12
 	je .LBB9_1
-	jmp .LBB9_14
-.LBB9_25:
+	jmp .LBB9_29
+.LBB9_23:
 	mov r13, r11
 	mov qword ptr [rsp], rcx
 	cmp qword ptr [rsp + 8], 0
-	jne .LBB9_27
+	jne .LBB9_25
 	lea rax, [rsp + 16]
 	xorps xmm0, xmm0
 	movups xmmword ptr [rax], xmm0
@@ -97,7 +101,7 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	lea rax, [r14 + 256]
 	mov qword ptr [rsp + 8], rax
 	mov byte ptr [rsp + 48], 2
-.LBB9_27:
+.LBB9_25:
 	mov rax, qword ptr [rip + chenal::blocking::PARK_WAKER@GOTPCREL]
 	mov qword ptr [rsp + 56], rax
 	mov qword ptr [rsp + 64], rax
@@ -114,8 +118,8 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	xor eax, eax
 	mov byte ptr [rbx], al
 	cmp qword ptr [rsp + 8], 0
-	jne .LBB9_23
-.LBB9_24:
+	jne .LBB9_20
+.LBB9_21:
 	add rsp, 88
 	pop rbx
 	pop r12
@@ -124,28 +128,28 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	pop r15
 	pop rbp
 	ret
-.LBB9_20:
+.LBB9_17:
 	mov byte ptr [rbx + 1], 0
-.LBB9_21:
+.LBB9_18:
 	mov al, 1
 	mov byte ptr [rbx], al
 	cmp qword ptr [rsp + 8], 0
-	je .LBB9_24
-.LBB9_23:
+	je .LBB9_21
+.LBB9_20:
 	lea rdi, [rsp + 8]
 	call <chenal::waiter::OptionCold<T> as core::ops::drop::Drop>::drop::drop_cold
-	jmp .LBB9_24
-.LBB9_14:
-	mov byte ptr [rbx + 1], al
 	jmp .LBB9_21
+.LBB9_29:
+	mov byte ptr [rbx + 1], al
+	jmp .LBB9_18
 	mov rbx, rax
 	cmp qword ptr [rsp + 8], 0
-	jne .LBB9_17
-.LBB9_19:
+	jne .LBB9_14
+.LBB9_16:
 	mov rdi, rbx
 	call _Unwind_Resume@PLT
-.LBB9_17:
+.LBB9_14:
 	lea rdi, [rsp + 8]
 	call <chenal::waiter::OptionCold<T> as core::ops::drop::Drop>::drop::drop_cold
-	jmp .LBB9_19
+	jmp .LBB9_16
 	call qword ptr [rip + core::panicking::panic_in_cleanup@GOTPCREL]

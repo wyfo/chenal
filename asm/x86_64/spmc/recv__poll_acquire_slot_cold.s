@@ -9,7 +9,7 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	lea rax, [rdi + 256]
 	mov qword ptr [rsp + 16], rax
 	lea r15, [rdx + 8]
-	xor r10d, r10d
+	xor r11d, r11d
 	movabs r12, -4294967296
 	xorps xmm0, xmm0
 	lea rbx, [rsp + 24]
@@ -17,76 +17,78 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	mov rax, rcx
 	mov r8, qword ptr [rdi + 408]
 	mov rcx, qword ptr [rdi + 416]
-	mov r11, rcx
-	and r11, rax
+	mov r13, rcx
+	and r13, rax
 	dec r8
-	cmp r11, r8
+	cmp r13, r8
 	jne .LBB9_3
 	or ecx, eax
 	inc ecx
-	mov r13, rax
-	and r13, r12
-	or r13, rcx
+	mov rbp, rax
+	and rbp, r12
+	or rbp, rcx
 	jmp .LBB9_4
 .LBB9_3:
-	lea r13, [rax + 1]
+	lea rbp, [rax + 1]
 .LBB9_4:
-	mov ebp, eax
+	mov r14d, eax
 	mov rcx, rax
 	shr rcx, 32
-	cmp ebp, ecx
+	cmp r14d, ecx
 	jne .LBB9_5
 	mov rcx, qword ptr [rdi + 128]
 	cmp rcx, rax
 	jne .LBB9_1
-	mov rcx, qword ptr [rdi + 424]
-	mov r8, qword ptr [rdi]
-	mov r14d, r8d
-	test rcx, rcx
-	je .LBB9_10
-	lea rcx, [4*r14 + 2]
-	mov r8, rax
-	mov eax, 1
-	lock cmpxchg	qword ptr [rdi + 424], rcx
+	mov rcx, qword ptr [rdi]
+	mov r8, qword ptr [rdi + 424]
+	test r8, r8
+	je .LBB9_9
+	mov rcx, qword ptr [rdi]
+	mov r10d, ecx
+	lea r8, [4*r10 + 2]
 	mov rcx, rax
-	mov rax, r8
-	mov r8d, 1
-	sete r9b
-	shr rcx, 2
-	test r9b, r9b
-	cmove r14, rcx
-	cmp rbp, r14
-	jne .LBB9_14
-	jmp .LBB9_7
-.LBB9_10:
-	cmp ebp, r14d
-	je .LBB9_11
-.LBB9_14:
-	mov ecx, r13d
-	shl r14, 32
-	or r14, rcx
-	mov r13, r14
+	mov eax, 1
+	lock cmpxchg	qword ptr [rdi + 424], r8
+	mov r8, rax
+	mov rax, rcx
+	mov r9d, 1
+	sete cl
+	shr r8, 2
+	test cl, cl
+	cmovne r8, r10
+	cmp r14, r8
+	jne .LBB9_12
+	jmp .LBB9_16
+.LBB9_9:
+	cmp r14d, ecx
+	je .LBB9_14
+	mov r8d, ecx
+.LBB9_12:
+	mov ecx, ebp
+	shl r8, 32
+	or r8, rcx
+	mov rbp, r8
 .LBB9_5:
 	mov rcx, qword ptr [rdi + 400]
-	mov r9, qword ptr [rcx + 8*r11]
+	mov r10, qword ptr [rcx + 8*r13]
 	#MEMBARRIER
-	lock cmpxchg	qword ptr [rdi + 128], r13
+	lock cmpxchg	qword ptr [rdi + 128], rbp
 	je .LBB9_6
 	mov rcx, rax
 	jmp .LBB9_1
-.LBB9_11:
-	test r10b, 1
-	jne .LBB9_12
+.LBB9_14:
+	test r11b, 1
+	jne .LBB9_15
 	mov qword ptr [rsp + 8], rax
 	mov r13, rdi
 	cmp qword ptr [rdx], 0
-	jne .LBB9_18
+	jne .LBB9_19
 	mov rax, qword ptr [rsp + 16]
 	mov qword ptr [rdx], rax
 	movups xmmword ptr [r15], xmm0
 	mov qword ptr [r15 + 16], 0
 	mov byte ptr [rdx + 40], 2
-.LBB9_18:
+.LBB9_19:
 	mov qword ptr [rsp + 24], rsi
 	mov qword ptr [rsp + 32], rsi
 	mov qword ptr [rsp + 40], 0
@@ -98,15 +100,15 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	xorps xmm0, xmm0
 	mov rsi, rbp
 	mov rdx, r14
-	mov r10d, eax
+	mov r11d, eax
 	mov rdi, r13
 	mov rcx, qword ptr [rsp + 8]
 	jmp .LBB9_1
 .LBB9_6:
-	xor r8d, r8d
-.LBB9_7:
-	mov rax, r8
-	mov rdx, r9
+	xor r9d, r9d
+.LBB9_16:
+	mov rax, r9
+	mov rdx, r10
 	add rsp, 56
 	pop rbx
 	pop r12
@@ -115,6 +117,6 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	pop r15
 	pop rbp
 	ret
-.LBB9_12:
-	mov r8d, 2
-	jmp .LBB9_7
+.LBB9_15:
+	mov r9d, 2
+	jmp .LBB9_16

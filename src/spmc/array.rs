@@ -168,6 +168,7 @@ impl<C: Capacity> internal::Channel for Array<C> {
                     && closed >> 2 != new_tail
                 {
                     debug_assert!(closed >> 2 == state & LB);
+                    chan.tx_state.store_seq_cst(state);
                     let slot = unsafe { chan.get_unchecked(state & chan.slot_mask()) };
                     let msg = unsafe { slot.read_racy().assume_init() };
                     return Err(SendError(msg));
@@ -230,13 +231,15 @@ impl<C: Capacity> internal::Channel for Array<C> {
                     *state = state_reload;
                     continue;
                 }
-                let closed = chan.closed.load(SeqCst);
                 let mut tail = chan.tx_state.load(SeqCst) & LB;
-                if closed != 0
-                    && let Err(closed) =
+                let closed = chan.closed.load(SeqCst);
+                if closed != 0 {
+                    tail = chan.tx_state.load(SeqCst) & LB;
+                    if let Err(closed) =
                         (chan.closed).compare_exchange(1, 2 | (tail << 2), SeqCst, SeqCst)
-                {
-                    tail = closed >> 2;
+                    {
+                        tail = closed >> 2;
+                    }
                 }
                 if head == tail {
                     return Err(if closed != 0 {

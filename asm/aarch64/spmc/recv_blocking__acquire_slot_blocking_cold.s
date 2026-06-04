@@ -19,6 +19,7 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 .LBB9_1:
 	mov x11, x21
 	b .LBB9_5
+	mov w11, w12
 	cmp x10, x11
 	b.eq .LBB9_11
 .LBB9_3:
@@ -59,17 +60,19 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	ldar x11, [x11]
 	cmp x11, x21
 	b.ne .LBB9_5
-	add x12, x20, #440
-	ldar x13, [x12]
-	ldar x11, [x20]
-	mov w11, w11
+	add x11, x20, #440
+	ldar x12, [x20]
+	ldar x13, [x11]
 	cbz x13, .LBB9_2
-	orr x13, x25, x11, lsl #2
+	ldar x12, [x20]
+	mov w13, #2
 	mov w14, #1
-	casal x14, x13, [x12]
-	lsr x12, x14, #2
+	bfi x13, x12, #2, #32
+	mov w12, w12
+	casal x14, x13, [x11]
+	lsr x11, x14, #2
 	cmp x14, #1
-	csel x11, x11, x12, eq
+	csel x11, x12, x11, eq
 	cmp x10, x11
 	b.ne .LBB9_3
 	b .LBB9_20

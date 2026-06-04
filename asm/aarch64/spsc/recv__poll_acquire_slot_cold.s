@@ -6,17 +6,18 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	stp x20, x19, [sp, #64]
 	mov x29, sp
 	add x22, x0, #424
+	ldar x9, [x0]
 	mov w21, w2
 	ldar x8, [x22]
-	ldar x9, [x0]
-	mov w9, w9
 	cbz x8, .LBB1_8
 	mov w8, wzr
 .LBB1_2:
+	ldar x9, [x0]
 	mov w10, #2
 	mov w11, #1
 	mov w19, #1
-	orr x10, x10, x9, lsl #2
+	bfi x10, x9, #2, #32
+	mov w9, w9
 	casal x11, x10, [x22]
 	lsr x10, x11, #2
 	cmp x11, #1
@@ -43,6 +44,7 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	ldp x29, x30, [sp], #80
 	ret
 	mov w19, #2
+	mov w9, w9
 	cmp x21, x9
 	b.ne .LBB1_3
 	tbnz w8, #0, .LBB1_18
@@ -61,10 +63,9 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	stlr xzr, [x8]
 	mov w8, #1
 .LBB1_15:
-	add x9, x0, #424
-	ldar x10, [x9]
+	add x10, x0, #424
 	ldar x9, [x0]
-	mov w9, w9
+	ldar x10, [x10]
 	cbz x10, .LBB1_9
 	b .LBB1_2
 .LBB1_16:

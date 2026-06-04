@@ -5,17 +5,18 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	stp x20, x19, [sp, #48]
 	mov x29, sp
 	add x23, x1, #424
-	mov x20, x1
-	mov x19, x0
-	ldar x9, [x23]
 	ldar x8, [x1]
+	mov x20, x1
+	ldar x9, [x23]
+	mov x19, x0
 	mov w22, w2
-	mov w8, w8
 	cbz x9, .LBB1_5
 	mov w0, wzr
+	ldar x8, [x20]
 	mov w9, #2
 	mov w10, #1
-	orr x9, x9, x8, lsl #2
+	bfi x9, x8, #2, #32
+	mov w8, w8
 	casal x10, x9, [x23]
 	lsr x9, x10, #2
 	cmp x10, #1
@@ -48,12 +49,12 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	mov w0, #1
 	stlr xzr, [x8]
 .LBB1_8:
-	add x8, x20, #424
-	ldar x9, [x8]
+	add x9, x20, #424
 	ldar x8, [x20]
-	mov w8, w8
+	ldar x9, [x9]
 	cbnz x9, .LBB1_2
 .LBB1_9:
+	mov w8, w8
 	cmp x22, x8
 	b.ne .LBB1_18
 	tbz w0, #0, .LBB1_13
