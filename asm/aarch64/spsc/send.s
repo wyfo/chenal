@@ -27,9 +27,9 @@ spsc_send:
 .LBB3_4:
 	add x9, x8, #1
 .LBB3_5:
-	add x10, x19, #128
-	stlr x9, [x10]
+	str x9, [x19, #128]
 	add x9, x19, #552
+	dmb ish
 	ldar x9, [x9]
 	cbnz x9, .LBB3_13
 	add x8, x19, #456

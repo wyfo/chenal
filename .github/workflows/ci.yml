@@ -69,3 +69,14 @@ jobs:
         env:
           RUSTFLAGS: --cfg=racy_test
           MIRIFLAGS: -Zmiri-many-seeds=${{ matrix.seeds }} -Zmiri-compare-exchange-weak-failure-rate=0
+
+  benchmark:
+    needs: test
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: benchmark
+        run: cd bench; cargo bench -- --quick

@@ -184,8 +184,8 @@ impl<T> RacyCell<T> {
     }
 
     #[cfg(not(racy_test))]
+    #[inline(always)]
     pub(crate) unsafe fn write_racy(&self, t: T) {
-        sync::atomic::fence(sync::atomic::Ordering::Release);
         unsafe { (*self.0.get()).write(t) };
     }
 
@@ -197,6 +197,7 @@ impl<T> RacyCell<T> {
     }
 
     #[cfg(not(racy_test))]
+    #[inline(always)]
     pub(crate) unsafe fn read_racy(&self) -> MaybeUninit<T> {
         let msg = unsafe { self.0.get().cast::<MaybeUninit<T>>().read_volatile() };
         sync::atomic::fence(sync::atomic::Ordering::Acquire);
@@ -214,6 +215,7 @@ impl<T> RacyCell<T> {
 
 pub(crate) trait AtomicUsizeExt {
     fn load_mut(&mut self) -> usize;
+    fn store_seq_cst(&self, x: usize);
 }
 
 impl AtomicUsizeExt for sync::atomic::AtomicUsize {
@@ -222,5 +224,21 @@ impl AtomicUsizeExt for sync::atomic::AtomicUsize {
         return *self.get_mut();
         #[cfg(loom)]
         return self.with_mut(|ptr| *ptr);
+    }
+    #[inline(always)]
+    fn store_seq_cst(&self, x: usize) {
+        use sync::atomic::Ordering::*;
+        // Splitting the store into a store + fence gives better result on
+        // aarch64 benchmarks when it concerns channel states (not slots).
+        // This split doesn't impact correctness of the algorithm as it
+        // relies on `store X; load Y || store Y; load X` pattern, which
+        // is still correct when atomic operations are relaxed with a
+        // SeqCst fence in between.
+        if cfg!(target_arch = "aarch64") {
+            self.store(x, Relaxed);
+            sync::atomic::fence(SeqCst);
+        } else {
+            self.store(x, SeqCst);
+        }
     }
 }

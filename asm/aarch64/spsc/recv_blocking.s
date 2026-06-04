@@ -22,10 +22,10 @@ spsc_recv_blocking:
 	ldr x10, [x19, #528]
 	orr x9, x9, x12
 	csinc x8, x9, x8, eq
-	add x9, x19, #256
 	ldr x1, [x10, x11, lsl #3]
-	stlr x8, [x9]
+	str x8, [x19, #256]
 	add x8, x19, #416
+	dmb ish
 	ldar x8, [x8]
 	cmp x8, #1
 	b.ls .LBB2_6

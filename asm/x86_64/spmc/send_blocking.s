@@ -16,14 +16,13 @@ spmc_send_blocking:
 	mov byte ptr [rsp + 8], 0
 .LBB6_3:
 	mov rsi, qword ptr [rsp + 16]
-	mov rax, qword ptr [rbx + 544]
-	and rax, rsi
-	mov rcx, qword ptr [rbx + 528]
-	#MEMBARRIER
-	mov qword ptr [rcx + 8*rax], r14
-	mov rcx, qword ptr [rbx + 536]
-	dec rcx
-	cmp rax, rcx
+	mov rax, qword ptr [rbx + 528]
+	mov rcx, qword ptr [rbx + 544]
+	and rcx, rsi
+	mov qword ptr [rax + 8*rcx], r14
+	mov rax, qword ptr [rbx + 536]
+	dec rax
+	cmp rcx, rax
 	jne .LBB6_5
 	mov ecx, dword ptr [rbx + 544]
 	or ecx, esi

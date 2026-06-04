@@ -18,11 +18,11 @@ spsc_recv:
 	cmp x10, x9
 	ldr x9, [x19, #528]
 	orr x8, x8, x11
-	add x11, x19, #256
 	csinc x8, x8, x2, eq
 	ldr x1, [x9, x10, lsl #3]
-	stlr x8, [x11]
+	str x8, [x19, #256]
 	add x8, x19, #416
+	dmb ish
 	ldar x8, [x8]
 	cmp x8, #1
 	b.ls .LBB2_3

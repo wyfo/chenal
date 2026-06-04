@@ -24,7 +24,6 @@ mpmc_send_blocking:
 	mov qword ptr [rsp + 8], rsi
 	mov qword ptr [rsp + 16], rcx
 .LBB12_6:
-	#MEMBARRIER
 	mov qword ptr [rsi], rdx
 	mov qword ptr [rsi + 8], rcx
 	mov rax, qword ptr [rbx + 432]

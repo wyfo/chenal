@@ -122,8 +122,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool> internal::Channel for Array<C, 
             return Err(state);
         }
         let ordering = if UNBOUNDED_BACKOFF { SeqCst } else { Relaxed };
-        chan.tx_state
-            .compare_exchange_weak(state, state + 1, ordering, Relaxed)?;
+        (chan.tx_state).compare_exchange_weak(state, state + 1, ordering, Relaxed)?;
         let slot = unsafe { chan.get_unchecked(tail_idx) }.into();
         Ok((slot, tail))
     }

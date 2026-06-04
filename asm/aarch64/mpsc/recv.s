@@ -23,9 +23,9 @@ mpsc_recv:
 	orr x8, x4, x8
 	cmp x10, x9
 	add x8, x8, #1
-	add x9, x19, #256
 	csinc x8, x8, x4, eq
-	stlr x8, [x9]
+	str x8, [x19, #256]
+	dmb ish
 	ldar x8, [x0]
 	tbnz w8, #0, .LBB7_5
 	mov x0, xzr

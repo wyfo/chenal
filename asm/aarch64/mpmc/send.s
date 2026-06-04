@@ -51,11 +51,10 @@ mpmc_send:
 	ldr x0, [sp, #16]
 .LBB18_10:
 	dmb ishld
-	dmb ish
 	str x1, [x9], #8
+	add x10, x0, #312
 	stlr x8, [x9]
-	add x9, x0, #312
-	ldar x9, [x9]
+	ldar x9, [x10]
 	tbnz w9, #0, .LBB18_17
 .LBB18_11:
 	mov x0, xzr

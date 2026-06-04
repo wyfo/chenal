@@ -14,14 +14,13 @@ spmc_send:
 	test rcx, rcx
 	jne .LBB6_10
 .LBB6_2:
-	mov rax, qword ptr [rbx + 544]
-	and rax, rdx
-	mov rcx, qword ptr [rbx + 528]
-	#MEMBARRIER
-	mov qword ptr [rcx + 8*rax], r14
-	mov rcx, qword ptr [rbx + 536]
-	dec rcx
-	cmp rax, rcx
+	mov rax, qword ptr [rbx + 528]
+	mov rcx, qword ptr [rbx + 544]
+	and rcx, rdx
+	mov qword ptr [rax + 8*rcx], r14
+	mov rax, qword ptr [rbx + 536]
+	dec rax
+	cmp rcx, rax
 	jne .LBB6_4
 	mov ecx, dword ptr [rbx + 544]
 	or ecx, edx

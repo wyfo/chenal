@@ -154,7 +154,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity> internal::Channel for Array<BLOCK_SIZ
         let slot = unsafe { chan.get_unchecked(tail_idx) };
         unsafe { slot.with_ref_mut(|m| m.write(msg)) };
         let new_state = chan.wrap_around(tail_idx, state, true);
-        chan.tx_state.store(new_state, SeqCst);
+        chan.tx_state.store_seq_cst(new_state);
         if chan.closed.load(SeqCst) != 0 {
             #[cold]
             #[inline(never)]
@@ -237,7 +237,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity> internal::Channel for Array<BLOCK_SIZ
         let msg = unsafe { slot.with_ref(|m| m.assume_init_read()) };
         let new_state = chan.wrap_around(head_idx, state, true);
         if new_state.is_multiple_of(BLOCK_SIZE) {
-            chan.rx_state.store(new_state, SeqCst);
+            chan.rx_state.store_seq_cst(new_state);
             chan.tx_waiter.wake_cold();
         } else {
             chan.rx_state.store(new_state, Relaxed);

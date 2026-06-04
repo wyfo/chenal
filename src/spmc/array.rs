@@ -154,7 +154,7 @@ impl<C: Capacity> internal::Channel for Array<C> {
         let slot = unsafe { chan.get_unchecked(tail_idx) };
         unsafe { slot.write_racy(msg) };
         let new_state = chan.wrap_around(tail_idx, state, true);
-        chan.tx_state.store(new_state, SeqCst);
+        chan.tx_state.store_seq_cst(new_state);
         if chan.closed.load(SeqCst) != 0 {
             #[cold]
             #[inline(never)]

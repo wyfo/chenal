@@ -279,7 +279,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool> intern
         let msg = unsafe { slot.as_ref().msg.with_ref(|m| m.assume_init_read()) };
         let new_head = chan.wrap_around(head & chan.slot_mask(), head, false);
         if new_head.is_multiple_of(BLOCK_SIZE) {
-            chan.rx_state.store(new_head, SeqCst);
+            chan.rx_state.store_seq_cst(new_head);
             chan.tx_waiter.notify_many_const::<BLOCK_SIZE>();
         } else {
             chan.rx_state.store(new_head, Relaxed);

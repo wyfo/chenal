@@ -53,7 +53,6 @@ mpmc_send:
 	test r9, r9
 	je .LBB12_10
 	mov rdi, qword ptr [rsp + 24]
-	#MEMBARRIER
 	mov qword ptr [r9], r14
 	mov qword ptr [r9 + 8], rcx
 	mov rax, qword ptr [rdi + 304]

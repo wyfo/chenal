@@ -12,7 +12,6 @@ spmc_send:
 	cbnz x9, .LBB6_8
 	ldr x9, [x19, #560]
 	ldr x10, [x19, #544]
-	dmb ish
 	and x9, x9, x8
 	str x1, [x10, x9, lsl #3]
 	ldr x10, [x19, #552]
@@ -28,9 +27,9 @@ spmc_send:
 .LBB6_4:
 	add x9, x8, #1
 .LBB6_5:
-	add x10, x19, #128
-	stlr x9, [x10]
+	str x9, [x19, #128]
 	add x9, x19, #568
+	dmb ish
 	ldar x9, [x9]
 	cbnz x9, .LBB6_13
 	add x0, x19, #424
