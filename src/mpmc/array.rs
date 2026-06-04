@@ -2,7 +2,7 @@ use core::{
     cmp,
     ptr::NonNull,
     sync::atomic::{
-        Ordering::{AcqRel, Acquire, Relaxed, Release, SeqCst},
+        Ordering::{Acquire, Relaxed, Release, SeqCst},
         fence,
     },
 };
@@ -85,7 +85,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool> internal::Channel for Array<C, 
     }
 
     fn close<T>(chan: &Chan<T, Self>) {
-        let ordering = if UNBOUNDED_BACKOFF { SeqCst } else { AcqRel };
+        let ordering = if UNBOUNDED_BACKOFF { SeqCst } else { Relaxed };
         chan.tx_state.fetch_or(chan.closed_flag(), ordering);
     }
 
