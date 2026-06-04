@@ -4,6 +4,10 @@ pub mod mpmc {
     pub use async_channel::bounded as async_channel;
 }
 
+pub use mpmc as mpsc;
+pub use mpmc as spmc;
+pub use mpmc as spsc;
+
 impl<T: Send + 'static> Sender<T> for async_channel::Sender<T> {
     const CLONEABLE: bool = true;
     fn try_send(&mut self, msg: T) {

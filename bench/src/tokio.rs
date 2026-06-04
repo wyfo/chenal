@@ -4,6 +4,8 @@ pub mod mpsc {
     pub use tokio::sync::mpsc::{channel as async_channel, channel as blocking_channel};
 }
 
+pub use mpsc as spsc;
+
 impl<T: Send + 'static> Sender<T> for tokio::sync::mpsc::Sender<T> {
     const CLONEABLE: bool = true;
     fn try_send(&mut self, msg: T) {

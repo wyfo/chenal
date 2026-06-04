@@ -4,6 +4,8 @@ pub mod mpsc {
     pub use tachyonix::channel as async_channel;
 }
 
+pub use mpsc as spsc;
+
 impl<T: Send + 'static> Sender<T> for tachyonix::Sender<T> {
     const CLONEABLE: bool = true;
     fn try_send(&mut self, msg: T) {

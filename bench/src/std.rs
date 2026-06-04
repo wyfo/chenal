@@ -4,6 +4,8 @@ pub mod mpsc {
     pub use std::sync::mpsc::sync_channel as blocking_channel;
 }
 
+pub use mpsc as spsc;
+
 impl<T: Send + 'static> Sender<T> for std::sync::mpsc::SyncSender<T> {
     const CLONEABLE: bool = true;
     fn try_send(&mut self, msg: T) {

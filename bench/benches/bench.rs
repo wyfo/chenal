@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fmt::Debug,
     hint::{black_box, spin_loop},
     marker::PhantomData,
@@ -19,7 +19,7 @@ use chenal_bench::{
 use criterion::{criterion_group, criterion_main, Criterion};
 use futures::executor::block_on;
 
-const MESSAGE_COUNT: usize = 1000;
+const MESSAGE_COUNT: usize = 1024;
 const MIN_SPIN: usize = 32;
 const MAX_SPIN: usize = 64;
 
@@ -32,6 +32,7 @@ impl SpinBarrier {
 
     fn wait(&self) {
         self.0.fetch_sub(1, Relaxed);
+        #[allow(clippy::missing_spin_loop)]
         while self.0.load(Relaxed) != 0 {}
     }
 
@@ -43,11 +44,10 @@ impl SpinBarrier {
         }
     }
 
-    fn time<R>(&self, f: impl FnOnce() -> R) -> Duration {
+    fn time<R>(&self, f: impl FnOnce() -> R) -> (R, Duration) {
         self.wait();
         let start = Instant::now();
-        f();
-        start.elapsed()
+        (f(), start.elapsed())
     }
 }
 
@@ -197,7 +197,7 @@ fn bench_send<
         tx.try_send(black_box(T::default()));
     }
     thread::scope(|s| {
-        let _rx = s.spawn(barrier.wrap(|| Run::run_recv(rx, MESSAGE_COUNT, MIN_SPIN)));
+        let rx = s.spawn(barrier.wrap(|| Run::run_recv(rx, MESSAGE_COUNT, MIN_SPIN)));
         let mut threads = vec![];
         if contended {
             threads.push(s.spawn({
@@ -209,10 +209,11 @@ fn bench_send<
                 barrier.wrap(|| Run::run_send(tx, MESSAGE_COUNT, MAX_SPIN))
             }));
         }
-        let res = barrier.time(|| Run::run_send(tx, MESSAGE_COUNT, 0));
+        let (_tx, res) = barrier.time(|| Run::run_send(tx, MESSAGE_COUNT, 0));
         for t in threads {
             t.join().unwrap();
         }
+        rx.join().unwrap();
         res
     })
 }
@@ -232,7 +233,7 @@ fn bench_recv<
         tx.try_send(black_box(T::default()));
     }
     thread::scope(|s| {
-        let _tx = s.spawn(barrier.wrap(|| Run::run_send(tx, MESSAGE_COUNT, MIN_SPIN)));
+        let tx = s.spawn(barrier.wrap(|| Run::run_send(tx, MESSAGE_COUNT, MIN_SPIN)));
         let mut threads = vec![];
         if contended {
             threads.push(s.spawn(barrier.wrap({
@@ -244,13 +245,18 @@ fn bench_recv<
                 || Run::run_recv(rx, MESSAGE_COUNT, MAX_SPIN)
             })));
         }
-        let res = barrier.time(|| Run::run_recv(rx, MESSAGE_COUNT, 0));
+        let (_rx, res) = barrier.time(|| Run::run_recv(rx, MESSAGE_COUNT, 0));
         for t in threads {
             t.join().unwrap();
         }
+        tx.join().unwrap();
         res
     })
 }
+
+type Group = String;
+type Func = String;
+type Benches = HashMap<Group, HashMap<Func, Box<dyn Fn() -> Duration>>>;
 
 fn bench_channel<
     Run: Runner<S, R>,
@@ -258,83 +264,108 @@ fn bench_channel<
     S: Sender<T>,
     R: Receiver<T>,
 >(
-    c: &mut Criterion,
+    benches: &mut Benches,
     name: &str,
     kind: &str,
     run: &str,
-    channel: impl Fn(usize) -> (S, R),
+    channel: impl Fn(usize) -> (S, R) + Copy + 'static,
 ) {
-    fn bench(c: &mut Criterion, id: String, f: impl Fn() -> Duration) {
-        c.bench_function(&id, |b| {
-            b.iter_custom(|iters| (0..iters).map(|_| f()).sum())
-        });
-    }
+    let mut insert = |group, f| {
+        benches.entry(group).or_default().insert(name.into(), f);
+    };
     let msg_size = size_of::<T>() / 8;
     static TRY: LazyLock<Mutex<HashSet<(String, String, usize)>>> = LazyLock::new(Default::default);
     let try_key = (name.to_string(), kind.to_string(), msg_size);
     if TRY.lock().unwrap().insert(try_key) {
-        let try_send = format!("{name}/{kind}/try_send/msg_size={msg_size}");
-        bench(c, try_send, || bench_try_send(&channel));
-        let try_recv = format!("{name}/{kind}/try_recv/msg_size={msg_size}");
-        bench(c, try_recv, || bench_try_recv(&channel));
+        insert(
+            format!("{kind}/try_send/msg_size={msg_size}"),
+            Box::new(move || bench_try_send(channel)),
+        );
+        insert(
+            format!("{kind}/try_recv/msg_size={msg_size}"),
+            Box::new(move || bench_try_recv(channel)),
+        );
     }
     if Run::ASYNC {
-        let try_send = format!("{name}/{kind}/poll_send/msg_size={msg_size}");
-        bench(c, try_send, || bench_poll_send::<Run, _, _, _>(&channel));
-        let try_recv = format!("{name}/{kind}/poll_recv/msg_size={msg_size}");
-        bench(c, try_recv, || bench_poll_recv::<Run, _, _, _>(&channel));
+        insert(
+            format!("{kind}/poll_send/msg_size={msg_size}"),
+            Box::new(move || bench_poll_send::<Run, _, _, _>(channel)),
+        );
+        insert(
+            format!("{kind}/poll_recv/msg_size={msg_size}"),
+            Box::new(move || bench_poll_recv::<Run, _, _, _>(channel)),
+        );
     }
     let contended: fn(bool) -> &'static [bool] = |cloneable| {
         if cloneable { &[false, true] } else { &[false] }
     };
     for &contended in contended(S::CLONEABLE) {
-        let send = format!("{name}/{kind}/send_{run}/msg_size={msg_size}/contended={contended}");
-        bench(c, send, || bench_send::<Run, _, _, _>(&channel, contended));
+        insert(
+            format!("{kind}/send_{run}/msg_size={msg_size}/contended={contended}"),
+            Box::new(move || bench_send::<Run, _, _, _>(channel, contended)),
+        );
     }
     for &contended in contended(R::CLONEABLE) {
-        let recv = format!("{name}/{kind}/recv_{run}/msg_size={msg_size}/contended={contended}");
-        bench(c, recv, || bench_recv::<Run, _, _, _>(&channel, contended));
+        insert(
+            format!("{kind}/recv_{run}/msg_size={msg_size}/contended={contended}"),
+            Box::new(move || bench_recv::<Run, _, _, _>(channel, contended)),
+        );
     }
 }
 
 macro_rules! bench_channel {
-    ($c:ident, $name:ident, $kind:ident($run:ident) $($tt:tt)*) => {
-        bench_channel!(@ $c, $name, $kind, $run);
-        bench_channel!($c, $name $($tt)*)
+    ($benches:ident, $name:ident($run:ident), $($kind:ident),+ $(,)?) => {$(
+        bench_channel!(@kind $run, $benches, $name, $kind);
+    )+};
+    ($benches:ident, $name:ident, $($kind:ident),+ $(,)?) => {$(
+        bench_channel!(@kind async, $benches, $name, $kind);
+        bench_channel!(@kind blocking, $benches, $name, $kind);
+    )+};
+    (@kind $run:ident, $benches:ident, $name:ident, mpmc) => {
+        bench_channel!(@run $benches, $name, mpmc, $run);
+        bench_channel!(@run $benches, $name, mpsc, $run);
+        bench_channel!(@run $benches, $name, spmc, $run);
+        bench_channel!(@run $benches, $name, spsc, $run);
     };
-    ($c:ident, $name:ident, $kind:ident $($tt:tt)*) => {
-        bench_channel!($c, $name, $kind(async));
-        bench_channel!($c, $name, $kind(blocking));
-        bench_channel!($c, $name $($tt)*)
+    (@kind $run:ident, $benches:ident, $name:ident, mpsc) => {
+        bench_channel!(@run $benches, $name, mpsc, $run);
+        bench_channel!(@run $benches, $name, spsc, $run);
     };
-    ($c:ident, $name:ident $(,)?) => {};
-    (@ $c:ident, $name:ident, $kind:ident, async) => {
-        bench_channel!(@ $c, $name, $kind, async, async_channel, Async);
+    (@run $benches:ident, $name:ident, $kind:ident, async) => {
+        bench_channel!(@ $benches, $name, $kind, async, async_channel, Async);
     };
-    (@ $c:ident, $name:ident, $kind:ident, blocking) => {
-        bench_channel!(@ $c, $name, $kind, blocking, blocking_channel, Blocking);
+    (@run $benches:ident, $name:ident, $kind:ident, blocking) => {
+        bench_channel!(@ $benches, $name, $kind, blocking, blocking_channel, Blocking);
     };
-    (@ $c:ident, $name:ident, $kind:ident, $run:ident, $channel:ident, $wrapper:ident) => {
-        bench_channel!(@[1, 4] $c, $name, $kind, $run, $channel, $wrapper);
+    (@ $benches:ident, $name:ident, $kind:ident, $run:ident, $channel:ident, $wrapper:ident) => {
+        bench_channel!(@[1, 4] $benches, $name, $kind, $run, $channel, $wrapper);
     };
-    (@[$($n:literal),+] $c:ident, $name:ident, $kind:ident, $run:ident, $channel:ident, $runner:ident) => {$(
-        bench_channel::<$runner<_>, [usize; $n], _, _>($c, stringify!($name), stringify!($kind), stringify!($run), chenal_bench::$name::$kind::$channel);
+    (@[$($n:literal),+] $benches:ident, $name:ident, $kind:ident, $run:ident, $channel:ident, $runner:ident) => {$(
+        bench_channel::<$runner<_>, [usize; $n], _, _>(&mut $benches, stringify!($name), stringify!($kind), stringify!($run), chenal_bench::$name::$kind::$channel);
     )+};
 }
 
 fn bench(c: &mut Criterion) {
-    bench_channel!(c, chenal, mpsc);
-    bench_channel!(c, async_channel, mpmc(async));
-    bench_channel!(c, chenal, mpmc, mpsc, spmc, spsc);
-    bench_channel!(c, chenal_32, mpsc, spsc);
-    bench_channel!(c, crossfire, mpmc, mpsc, spsc);
-    bench_channel!(c, crossbeam, mpmc(blocking));
-    bench_channel!(c, flume, mpmc);
-    bench_channel!(c, kanal, mpmc);
-    bench_channel!(c, postage, mpsc);
-    bench_channel!(c, std, mpsc(blocking));
-    bench_channel!(c, tokio, mpsc);
-    bench_channel!(c, tachyonix, mpsc(async));
+    let mut benches: Benches = Benches::new();
+    bench_channel!(benches, async_channel(async), mpmc);
+    bench_channel!(benches, chenal, mpmc);
+    bench_channel!(benches, chenal_32, mpsc);
+    bench_channel!(benches, crossfire, mpmc);
+    bench_channel!(benches, crossbeam(blocking), mpmc);
+    bench_channel!(benches, flume, mpmc);
+    bench_channel!(benches, kanal, mpmc);
+    bench_channel!(benches, postage, mpsc);
+    bench_channel!(benches, std(blocking), mpsc);
+    bench_channel!(benches, tokio, mpsc);
+    bench_channel!(benches, tachyonix(async), mpsc);
+    for (group, funcs) in benches {
+        let mut g = c.benchmark_group(group);
+        for (func, f) in funcs {
+            g.bench_function(func, |b| {
+                b.iter_custom(|iters| (0..iters).map(|_| f()).sum())
+            });
+        }
+    }
 }
 
 criterion_group!(benches, bench);

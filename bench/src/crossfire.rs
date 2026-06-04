@@ -8,6 +8,8 @@ pub mod mpmc {
     };
 }
 
+pub use mpmc as spmc;
+
 pub mod mpsc {
     pub use crossfire::mpsc::{
         bounded_async as async_channel, bounded_blocking as blocking_channel,
