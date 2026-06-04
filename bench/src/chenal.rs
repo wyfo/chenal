@@ -1,6 +1,8 @@
 use chenal::{backoff::BackoffStrategy, Channel};
 
-use crate::{AsyncReceiver, AsyncSender, BlockingReceiver, BlockingSender, Receiver, Sender};
+use crate::{
+    AsyncReceiver, AsyncSender, BlockingReceiver, BlockingSender, FutureExt, Receiver, Sender,
+};
 
 pub mod mpsc {
     pub use chenal::mpsc::{channel as async_channel, channel as blocking_channel};
@@ -35,8 +37,8 @@ impl<T: Send + 'static, Ch: Channel> BlockingSender<T> for chenal::Tx<T, Ch> {
 }
 
 impl<T: Send + 'static, Ch: Channel> AsyncSender<T> for chenal::Tx<T, Ch> {
-    async fn send(&mut self, msg: T) {
-        (*self).send(msg).await.unwrap();
+    fn send(&mut self, msg: T) -> impl Future<Output = ()> + Send + '_ {
+        (*self).send(msg).unwrap()
     }
 }
 
@@ -59,8 +61,8 @@ impl<T: Send + 'static, Ch: Channel, B: BackoffStrategy> BlockingSender<T>
 }
 
 impl<T: Send + 'static, Ch: Channel, B: BackoffStrategy> AsyncSender<T> for chenal::MTx<T, Ch, B> {
-    async fn send(&mut self, msg: T) {
-        (*self).send(msg).await.unwrap();
+    fn send(&mut self, msg: T) -> impl Future<Output = ()> + Send + '_ {
+        (*self).send(msg).unwrap()
     }
 }
 
@@ -81,8 +83,8 @@ impl<T: Send + 'static, Ch: Channel> BlockingReceiver<T> for chenal::Rx<T, Ch> {
 }
 
 impl<T: Send + 'static, Ch: Channel> AsyncReceiver<T> for chenal::Rx<T, Ch> {
-    async fn recv(&mut self) -> T {
-        (*self).recv().await.unwrap()
+    fn recv(&mut self) -> impl Future<Output = T> + Send + '_ {
+        (*self).recv().unwrap()
     }
 }
 
@@ -107,7 +109,7 @@ impl<T: Send + 'static, Ch: Channel, B: BackoffStrategy> BlockingReceiver<T>
 impl<T: Send + 'static, Ch: Channel, B: BackoffStrategy> AsyncReceiver<T>
     for chenal::MRx<T, Ch, B>
 {
-    async fn recv(&mut self) -> T {
-        (*self).recv().await.unwrap()
+    fn recv(&mut self) -> impl Future<Output = T> + Send + '_ {
+        (*self).recv().unwrap()
     }
 }

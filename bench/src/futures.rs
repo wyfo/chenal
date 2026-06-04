@@ -1,4 +1,4 @@
-use crate::{AsyncReceiver, AsyncSender, Receiver, Sender};
+use crate::{AsyncReceiver, AsyncSender, FutureExt as _, Receiver, Sender};
 
 pub mod mpsc {
     pub use futures::channel::mpsc::channel as async_channel;
@@ -15,8 +15,8 @@ impl<T: Send + 'static> Sender<T> for futures::channel::mpsc::Sender<T> {
 }
 
 impl<T: Send + 'static> AsyncSender<T> for futures::channel::mpsc::Sender<T> {
-    async fn send(&mut self, msg: T) {
-        futures::SinkExt::send(self, msg).await.unwrap();
+    fn send(&mut self, msg: T) -> impl Future<Output = ()> + Send + '_ {
+        futures::SinkExt::send(self, msg).unwrap()
     }
 }
 
@@ -31,7 +31,7 @@ impl<T: Send + 'static> Receiver<T> for futures::channel::mpsc::Receiver<T> {
 }
 
 impl<T: Send + 'static> AsyncReceiver<T> for futures::channel::mpsc::Receiver<T> {
-    async fn recv(&mut self) -> T {
-        self.recv().await.unwrap()
+    fn recv(&mut self) -> impl Future<Output = T> + Send + '_ {
+        self.recv().unwrap()
     }
 }

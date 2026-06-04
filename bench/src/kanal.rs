@@ -1,4 +1,4 @@
-use crate::{AsyncReceiver, AsyncSender, BlockingReceiver, BlockingSender, Receiver, Sender};
+use crate::{AsyncReceiver, AsyncSender, BlockingReceiver, BlockingSender, FutureExt as _, Receiver, Sender};
 
 pub mod mpmc {
     pub use kanal::{bounded as blocking_channel, bounded_async as async_channel};
@@ -31,8 +31,8 @@ impl<T: Send + 'static> Sender<T> for kanal::AsyncSender<T> {
 }
 
 impl<T: Send + 'static> AsyncSender<T> for kanal::AsyncSender<T> {
-    async fn send(&mut self, msg: T) {
-        (*self).send(msg).await.unwrap();
+    fn send(&mut self, msg: T) -> impl Future<Output = ()> + Send + '_ {
+        (*self).send(msg).unwrap()
     }
 }
 
@@ -63,7 +63,7 @@ impl<T: Send + 'static> Receiver<T> for kanal::AsyncReceiver<T> {
 }
 
 impl<T: Send + 'static> AsyncReceiver<T> for kanal::AsyncReceiver<T> {
-    async fn recv(&mut self) -> T {
-        (*self).recv().await.unwrap()
+    fn recv(&mut self) -> impl Future<Output = T> + Send + '_ {
+        (*self).recv().unwrap()
     }
 }

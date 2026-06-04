@@ -1,6 +1,6 @@
 use crossfire::flavor::{Flavor, FlavorMC, FlavorMP};
 
-use crate::{AsyncReceiver, AsyncSender, BlockingReceiver, BlockingSender, Receiver, Sender};
+use crate::{AsyncReceiver, AsyncSender, BlockingReceiver, BlockingSender, FutureExt as _, Receiver, Sender};
 
 pub mod mpmc {
     pub use crossfire::mpmc::{
@@ -47,8 +47,8 @@ impl<T: Send + Unpin + 'static, F: Flavor<Item = T>> Sender<T> for crossfire::As
 }
 
 impl<T: Send + Unpin + 'static, F: Flavor<Item = T>> AsyncSender<T> for crossfire::AsyncTx<F> {
-    async fn send(&mut self, msg: T) {
-        crossfire::AsyncTxTrait::send(self, msg).await.unwrap();
+    fn send(&mut self, msg: T) -> impl Future<Output = ()> + Send + '_ {
+        crossfire::AsyncTxTrait::send(self, msg).unwrap()
     }
 }
 
@@ -83,8 +83,8 @@ impl<T: Send + Unpin + 'static, F: Flavor<Item = T> + FlavorMP> Sender<T>
 impl<T: Send + Unpin + 'static, F: Flavor<Item = T> + FlavorMP> AsyncSender<T>
     for crossfire::MAsyncTx<F>
 {
-    async fn send(&mut self, msg: T) {
-        crossfire::AsyncTxTrait::send(self, msg).await.unwrap();
+    fn send(&mut self, msg: T) -> impl Future<Output = ()> + Send + '_ {
+        crossfire::AsyncTxTrait::send(self, msg).unwrap()
     }
 }
 
@@ -115,8 +115,8 @@ impl<T: Send + Unpin + 'static, F: Flavor<Item = T>> Receiver<T> for crossfire::
 }
 
 impl<T: Send + Unpin + 'static, F: Flavor<Item = T>> AsyncReceiver<T> for crossfire::AsyncRx<F> {
-    async fn recv(&mut self) -> T {
-        crossfire::AsyncRxTrait::recv(self).await.unwrap()
+    fn recv(&mut self) -> impl Future<Output = T> + Send + '_ {
+        crossfire::AsyncRxTrait::recv(self).unwrap()
     }
 }
 
@@ -151,7 +151,7 @@ impl<T: Send + Unpin + 'static, F: Flavor<Item = T> + FlavorMC> Receiver<T>
 impl<T: Send + Unpin + 'static, F: Flavor<Item = T> + FlavorMC> AsyncReceiver<T>
     for crossfire::MAsyncRx<F>
 {
-    async fn recv(&mut self) -> T {
-        crossfire::AsyncRxTrait::recv(self).await.unwrap()
+    fn recv(&mut self) -> impl Future<Output = T> + Send + '_ {
+        crossfire::AsyncRxTrait::recv(self).unwrap()
     }
 }

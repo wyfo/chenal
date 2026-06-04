@@ -1,4 +1,4 @@
-use crate::{AsyncReceiver, AsyncSender, BlockingReceiver, BlockingSender, Receiver, Sender};
+use crate::{AsyncReceiver, AsyncSender, BlockingReceiver, BlockingSender, FutureExt as _, Receiver, Sender};
 
 pub mod mpsc {
     pub use tokio::sync::mpsc::{channel as async_channel, channel as blocking_channel};
@@ -21,8 +21,8 @@ impl<T: Send + 'static> BlockingSender<T> for tokio::sync::mpsc::Sender<T> {
 }
 
 impl<T: Send + 'static> AsyncSender<T> for tokio::sync::mpsc::Sender<T> {
-    async fn send(&mut self, msg: T) {
-        (*self).send(msg).await.unwrap();
+    fn send(&mut self, msg: T) -> impl Future<Output = ()> + Send + '_ {
+        (*self).send(msg).unwrap()
     }
 }
 
@@ -43,7 +43,7 @@ impl<T: Send + 'static> BlockingReceiver<T> for tokio::sync::mpsc::Receiver<T> {
 }
 
 impl<T: Send + 'static> AsyncReceiver<T> for tokio::sync::mpsc::Receiver<T> {
-    async fn recv(&mut self) -> T {
-        self.recv().await.unwrap()
+    fn recv(&mut self) -> impl Future<Output = T> + Send + '_ {
+        self.recv().unwrap()
     }
 }
