@@ -45,7 +45,14 @@ check_unit() {
     local tdir="$SCRIPT_DIR/target/$arch/$cfg"
     mkdir -p "$tdir"
 
-    local actual=$(CARGO_TARGET_DIR=$tdir RUSTFLAGS="--cfg $cfg $extra" cargo asm --lib --target "$target" --simplify "$fn" 2>/dev/null) || true
+    # cargo-asm intermittently flakes under concurrency, failing with a "no such
+    # file" error and printing nothing (a valid function always has asm). The
+    # build is cached after the first try, so retrying on empty output is cheap.
+    local actual=""
+    for _ in 1 2 3; do
+        actual=$(CARGO_TARGET_DIR=$tdir RUSTFLAGS="--cfg $cfg $extra" cargo asm --lib --target "$target" --simplify "$fn" 2>/dev/null) || true
+        [[ -n "$actual" ]] && break
+    done
 
     local asm_file="$arch/$family/$name.s"
 
