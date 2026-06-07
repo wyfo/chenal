@@ -34,7 +34,6 @@ types_or = ["rust", "toml"]
 id = "asm"
 name = "asm"
 entry = "asm/check-asm.sh"
-args = ["regenerate"]
 language = "script"
 pass_filenames = false
 types_or = ["rust", "toml"]

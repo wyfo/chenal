@@ -4,12 +4,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Default mode regenerates the reference asm files. Pass "--check" to instead
+# diff the freshly generated asm against the committed references without
+# touching them (e.g. in CI / pre-commit).
 MODE="${1:-}"
-if [[ "$MODE" == "clean" ]]; then
-    find . -name '*.err' -delete
-    echo "cleaned .err files"
-    exit 0
-fi
 
 # arch label : rust target triple : extra rustflags
 # +lse on aarch64 emits inline cas/casal instead of the __aarch64_cas8_* outline-atomics calls
@@ -56,24 +54,22 @@ check_unit() {
 
     local asm_file="$arch/$family/$name.s"
 
-    if [[ "$MODE" == "regenerate" ]]; then
+    if [[ "$MODE" != "--check" ]]; then
         mkdir -p "$(dirname "$asm_file")"
-        rm -f "$asm_file.err"
         printf '%s\n' "$actual" > "$asm_file"
         echo "updated: $label"
         return 0
     fi
 
     if [[ ! -f "$asm_file" ]]; then
-        echo "MISSING ref: $asm_file (run with 'regenerate' to generate)"
+        echo "MISSING ref: $asm_file (run without '--check' to generate)"
         return 1
     fi
     if diff -u "$asm_file" <(printf '%s\n' "$actual") > /dev/null 2>&1; then
         echo "ok: $label"
         return 0
     else
-        echo "FAIL: $label  (see $asm_file.err)"
-        printf '%s\n' "$actual" > "$asm_file.err"
+        echo "FAIL: $label"
         return 1
     fi
 }
@@ -105,7 +101,7 @@ done
 PASS=$(( ${#pids[@]} - FAIL ))
 
 echo ""
-if [[ "$MODE" == "regenerate" ]]; then
+if [[ "$MODE" != "--check" ]]; then
     echo "regenerated ${#pids[@]} function(s)."
     exit 0
 fi
