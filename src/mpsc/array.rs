@@ -131,7 +131,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, U: UnboundedBackoffStrategy> internal
 
     #[inline(always)]
     fn tx_acquire_slot<T>(chan: &Chan<T, Self>) -> Result<Self::TxSlot<T>, Self::TxState<T>> {
-        let state = chan.tx_state.load(Acquire);
+        let state = chan.tx_state.load(Relaxed);
         let tail = state & LB;
         let max_tail = state >> HB_SHIFT;
         let tail_idx = state & chan.slot_mask();
@@ -179,7 +179,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, U: UnboundedBackoffStrategy> internal
             if backoff.backoff(state, || chan.tx_state.load(Relaxed)) {
                 continue;
             }
-            let ordering = if U::BACKOFF { SeqCst } else { Acquire };
+            let ordering = if U::BACKOFF { SeqCst } else { Relaxed };
             match (chan.tx_state).compare_exchange_weak(*state, next_state, ordering, Relaxed) {
                 Ok(_) => {
                     let slot = unsafe { chan.get_unchecked(tail_idx) }.into();
@@ -196,6 +196,9 @@ impl<const BLOCK_SIZE: usize, C: Capacity, U: UnboundedBackoffStrategy> internal
         (slot, tail): Self::TxSlot<T>,
         msg: T,
     ) -> Result<(), SendError<T>> {
+        if !U::BACKOFF {
+            fence(Acquire);
+        }
         unsafe { slot.as_ref().msg.with_ref_mut(|m| m.write(msg)) };
         let ordering = if U::BACKOFF { Release } else { SeqCst };
         unsafe { slot.as_ref().stamp.store(tail, ordering) };
