@@ -138,6 +138,7 @@ fn bench_try_send<T: Default + Debug + Unpin + 'static, S: Sender<T>, R: Receive
     let start = Instant::now();
     for _ in 0..MESSAGE_COUNT {
         tx.try_send(black_box(T::default()));
+        spin_loop();
     }
     start.elapsed()
 }
