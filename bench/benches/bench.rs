@@ -5,7 +5,11 @@ use std::{
     marker::PhantomData,
     pin::pin,
     sync::{
-        atomic::{AtomicUsize, Ordering::Relaxed}, LazyLock,
+        atomic::{
+            fence,
+            AtomicUsize,
+            Ordering::{Relaxed, SeqCst},
+        }, LazyLock,
         Mutex,
     },
     task::{Context, Waker},
@@ -138,7 +142,7 @@ fn bench_try_send<T: Default + Debug + Unpin + 'static, S: Sender<T>, R: Receive
     let start = Instant::now();
     for _ in 0..MESSAGE_COUNT {
         tx.try_send(black_box(T::default()));
-        spin_loop();
+        fence(SeqCst);
     }
     start.elapsed()
 }
