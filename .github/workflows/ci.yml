@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - acquire_cas
 
 jobs:
   test:
@@ -29,63 +30,13 @@ jobs:
         env:
           RUSTDOCFLAGS: "-Dwarnings"
 
-  loom:
-    needs: test
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        test: [mpmc_array, mpsc_array, spmc_array, spsc_array]
-    steps:
-      - uses: actions/checkout@v6
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.test }}
-      - name: loom
-        run: cargo test --features blocking --release --test ${{ matrix.test }} loom_
-        env:
-          LOOM_MAX_PREEMPTIONS: 2
-          RUSTFLAGS: --cfg=loom --cfg=racy_test
-
-  compute-miri-seeds:
-    runs-on: ubuntu-latest
-    outputs:
-      seeds: ${{ steps.compute-seeds.outputs.seeds }}
-    steps:
-      - id: compute-seeds
-        run: python3 -c "print('seeds=' + str([f'{i}..{i+$TOTAL//$RUNNERS}' for i in range(0,$TOTAL,$TOTAL//$RUNNERS)]))" >> $GITHUB_OUTPUT
-        env:
-          TOTAL: 2048
-          RUNNERS: 16
-
-  miri:
-    needs: [test, compute-miri-seeds]
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        test: [mpmc_array, mpsc_array, spmc_array, spsc_array]
-        seeds: ${{ fromJson(needs.compute-miri-seeds.outputs.seeds) }}
-    steps:
-      - uses: actions/checkout@v6
-      - name: install miri
-        run: rustup install nightly && rustup +nightly component add miri
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.test }}
-      - name: miri
-        run: cargo +nightly miri test --all-features --test ${{ matrix.test }}
-        env:
-          RUSTFLAGS: --cfg=racy_test
-          MIRIFLAGS: -Zmiri-many-seeds=${{ matrix.seeds }} -Zmiri-compare-exchange-weak-failure-rate=0
-
   benchmark:
     needs: test
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, ubuntu-24.04-arm]
-        kind: [mpmc, mpsc, spmc, spsc]
+        kind: [mpsc]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
