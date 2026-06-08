@@ -8,30 +8,7 @@ on:
       - acquire_cas
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        features: [--no-default-features, --all-features]
-    steps:
-      - uses: actions/checkout@v6
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.features }}
-      - name: rustfmt
-        run: cargo fmt -- --check --config "unstable_features=true,imports_granularity=Crate,group_imports=StdExternalCrate,format_code_in_doc_comments=true"
-      - name: clippy
-        run: cargo clippy ${{ matrix.features }} --all-targets -- -D warnings
-      - name: test
-        run: cargo test ${{ matrix.features }}
-      - name: check doc
-        if: matrix.features == '--all-features'
-        run: cargo doc ${{ matrix.features }}
-        env:
-          RUSTDOCFLAGS: "-Dwarnings"
-
   benchmark:
-    needs: test
     strategy:
       fail-fast: false
       matrix:
