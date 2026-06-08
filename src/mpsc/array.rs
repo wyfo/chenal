@@ -131,14 +131,14 @@ impl<const BLOCK_SIZE: usize, C: Capacity, U: UnboundedBackoffStrategy> internal
 
     #[inline(always)]
     fn tx_acquire_slot<T>(chan: &Chan<T, Self>) -> Result<Self::TxSlot<T>, Self::TxState<T>> {
-        let state = chan.tx_state.load(Relaxed);
+        let state = chan.tx_state.load(Acquire);
         let tail = state & LB;
         let max_tail = state >> HB_SHIFT;
         let tail_idx = state & chan.slot_mask();
         if tail == max_tail || tail_idx >= chan.capacity() - 1 {
             return Err(state);
         }
-        let ordering = if U::BACKOFF { SeqCst } else { Acquire };
+        let ordering = if U::BACKOFF { SeqCst } else { Relaxed };
         (chan.tx_state).compare_exchange_weak(state, state + 1, ordering, Relaxed)?;
         let slot = unsafe { chan.get_unchecked(tail_idx) }.into();
         Ok((slot, tail))

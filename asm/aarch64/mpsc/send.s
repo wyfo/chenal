@@ -9,7 +9,7 @@ mpsc_send:
 	stp x8, x1, [sp]
 	add x1, x9, #128
 	stp x1, xzr, [sp, #16]
-	ldr x4, [x9, #128]
+	ldar x4, [x1]
 	mov w8, w4
 	cmp x8, x4, lsr #32
 	b.eq .LBB12_4
@@ -21,7 +21,7 @@ mpsc_send:
 	b.hs .LBB12_4
 	add x11, x4, #1
 	mov x12, x4
-	casa x12, x11, [x1]
+	cas x12, x11, [x1]
 	cmp x12, x4
 	mov x4, x12
 	b.ne .LBB12_4

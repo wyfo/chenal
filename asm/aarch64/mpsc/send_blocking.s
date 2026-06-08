@@ -4,7 +4,8 @@ mpsc_send_blocking:
 	stp x20, x19, [sp, #64]
 	add x29, sp, #48
 	ldr x19, [x0]
-	ldr x9, [x19, #128]
+	add x8, x19, #128
+	ldar x9, [x8]
 	mov w8, w9
 	mov x2, x9
 	cmp x8, x9, lsr #32
@@ -17,7 +18,7 @@ mpsc_send_blocking:
 	b.hs .LBB12_5
 	add x11, x9, #1
 	add x12, x19, #128
-	casa x2, x11, [x12]
+	cas x2, x11, [x12]
 	cmp x2, x9
 	b.ne .LBB12_5
 	ldr x9, [x19, #544]
