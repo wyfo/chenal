@@ -118,6 +118,19 @@ impl<T: Default, S: AsyncSender<T>, R: AsyncReceiver<T>> Runner<S, R> for Async<
     }
 }
 
+fn warm_channel<T: Default + Debug + Unpin + 'static, S: Sender<T>, R: Receiver<T>>(
+    channel: impl Fn(usize) -> (S, R) + Copy + 'static,
+) -> impl Fn(usize) -> (S, R) + Copy + 'static {
+    move |capacity| {
+        let (mut tx, mut rx) = channel(capacity);
+        for _ in 0..capacity {
+            tx.try_send(black_box(T::default()));
+            black_box(rx.try_recv());
+        }
+        (tx, rx)
+    }
+}
+
 fn bench_try_send<T: Default + Debug + Unpin + 'static, S: Sender<T>, R: Receiver<T>>(
     channel: impl Fn(usize) -> (S, R),
 ) -> Duration {
@@ -270,6 +283,7 @@ fn bench_channel<
     run: &str,
     channel: impl Fn(usize) -> (S, R) + Copy + 'static,
 ) {
+    let channel = warm_channel(channel);
     let mut insert = |group, f| {
         benches.entry(group).or_default().insert(name.into(), f);
     };
