@@ -349,7 +349,9 @@ fn bench(c: &mut Criterion) {
     let mut benches: Benches = Benches::new();
     bench_channel!(benches, async_channel(async), mpmc);
     bench_channel!(benches, chenal, mpmc);
+    bench_channel!(benches, chenal_ub, mpmc);
     bench_channel!(benches, chenal_32, mpsc);
+    bench_channel!(benches, chenal_32_ub, mpsc);
     bench_channel!(benches, crossfire, mpmc);
     bench_channel!(benches, crossbeam(blocking), mpmc);
     bench_channel!(benches, flume, mpmc);

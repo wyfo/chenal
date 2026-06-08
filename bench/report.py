@@ -213,7 +213,7 @@ def build_tables(results):
             if cells:
                 fastest[col] = min(cells, key=cells.get)
 
-        out.append(f"### {kind} / {op}\n")
+        out.append(f"### {kind}/{op}\n")
 
         header = "| crate | " + " | ".join(param_label(*c) for c in col_keys) + " |"
         sep = "| --- | " + " | ".join("---" for _ in col_keys) + " |"
@@ -248,7 +248,7 @@ def main():
 
     parser = argparse.ArgumentParser(
         description="Render chenal-centric markdown comparison tables from "
-        "criterion benchmark results.",
+                    "criterion benchmark results.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(

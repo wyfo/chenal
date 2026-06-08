@@ -5,11 +5,27 @@ use crate::{
 };
 
 pub mod mpsc {
-    pub use chenal::mpsc::{channel as async_channel, channel as blocking_channel};
+    pub use channel as async_channel;
+    pub use channel as blocking_channel;
+    use chenal::{Channel, MTx, Rx, backoff::NoBackoff, mpsc::Array};
+
+    type Ch = Array<1, usize, NoBackoff>;
+
+    pub fn channel<T>(capacity: usize) -> (MTx<T, Ch>, Rx<T, Ch>) {
+        Array::new(capacity).channel()
+    }
 }
 
 pub mod mpmc {
-    pub use chenal::mpmc::{channel as async_channel, channel as blocking_channel};
+    pub use channel as async_channel;
+    pub use channel as blocking_channel;
+    use chenal::{Channel, MRx, MTx, backoff::NoBackoff, mpmc::Array};
+
+    type Ch = Array<usize, NoBackoff>;
+
+    pub fn channel<T>(capacity: usize) -> (MTx<T, Ch>, MRx<T, Ch>) {
+        Array::new(capacity).channel()
+    }
 }
 
 pub mod spmc {

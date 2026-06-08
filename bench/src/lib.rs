@@ -7,6 +7,8 @@ use ::std::{
 pub mod async_channel;
 pub mod chenal;
 pub mod chenal_32;
+pub mod chenal_32_ub;
+pub mod chenal_ub;
 pub mod crossbeam;
 pub mod crossfire;
 pub mod flume;
