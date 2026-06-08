@@ -56,7 +56,7 @@ mpmc_send_blocking:
 	add x0, x19, #128
 	mov x19, x1
 	mov x1, x8
-	bl <chenal::mpmc::array::Array<C,_> as chenal::internal::Channel>::write_slot::notify_receivers
+	bl <chenal::mpmc::array::Array<C,U> as chenal::internal::Channel>::write_slot::notify_receivers
 	mov x1, x19
 	mov x0, xzr
 	ldp x20, x19, [sp, #64]

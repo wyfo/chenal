@@ -5,8 +5,11 @@ use core::mem::MaybeUninit;
 #[cfg(not(loom))]
 pub(crate) use core::*;
 #[cfg(not(loom))]
+#[cfg(feature = "std")]
+pub(crate) use std::thread;
+#[cfg(not(loom))]
 #[cfg(feature = "blocking")]
-pub(crate) use std::{thread, thread_local};
+pub(crate) use std::thread_local;
 
 #[cfg(loom)]
 pub(crate) use loom::*;

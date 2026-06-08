@@ -82,7 +82,7 @@ mpmc_send:
 	bl <chenal::channel::SendFuture<T,Ch,B> as core::future::future::Future>::poll::polled_after_completion
 	brk #0x1
 	mov x1, x8
-	bl <chenal::mpmc::array::Array<C,_> as chenal::internal::Channel>::write_slot::notify_receivers
+	bl <chenal::mpmc::array::Array<C,U> as chenal::internal::Channel>::write_slot::notify_receivers
 	b .LBB18_11
 	ldr x8, [sp, #24]
 	mov x19, x0

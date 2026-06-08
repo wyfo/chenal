@@ -34,26 +34,47 @@ pub mod futures {
     pub use crate::channel::{ClosedFuture, RecvFuture, SendFuture};
 }
 
-/// Default value for the `UNBOUNDED_BACKOFF` MPSC/MPMC channel parameter.
-///
-/// On some platforms like `x86_64`, `SeqCst` stores are significantly more expensive than
-/// `Release` stores. That's why MPSC and MPMC channels use by default a modified algorithm
-/// where `SeqCst` stores are replaced by `Release` stores, at the cost of having an
-/// unbounded backoff loop in `recv` operation. It means that under specific circumstances,
-/// i.e., `recv` called while the next message is being sent, [`spin_loop`] and even
-/// [`yield_now`] are called repeatedly until the `send` operation finishes.
-///
-/// If this behavior is not desired, channel's `UNBOUNDED_BACKOFF` parameter might be set
-/// to `false`, trading performance for scheduler friendliness.
-///
-/// [`spin_loop`]: core::hint::spin_loop
-/// [`yield_now`]: blocking::std::thread::yield_now
-pub const DEFAULT_UNBOUNDED_BACKOFF: bool = cfg!(any(
-    target_arch = "x86_64",
-    target_arch = "x86",
-    target_arch = "riscv64",
-    target_arch = "riscv32",
-    target_arch = "powerpc64",
-    target_arch = "powerpc",
-    target_arch = "arm",
-));
+cfg_if::cfg_if! {
+    if #[cfg(any(
+        target_arch = "x86_64",
+        target_arch = "x86",
+        target_arch = "powerpc64",
+        target_arch = "powerpc",
+    ))] {
+        /// Default unbounded backoff strategy for the MPSC/MPMC channel `U` parameter.
+        ///
+        /// On some platforms like `x86_64`, `SeqCst` stores are significantly more expensive
+        /// than `Release` stores. That's why MPSC and MPMC channels use by default a modified
+        /// algorithm where `SeqCst` stores are replaced by `Release` stores, at the cost of
+        /// having an unbounded backoff loop in `recv` operation. It means that under specific
+        /// circumstances, i.e., `recv` called while the next message is being sent,
+        /// [`spin_loop`] and even [`yield_now`] are called repeatedly until the `send`
+        /// operation finishes.
+        ///
+        /// If this behavior is not desired, channel's `U` parameter might be set to
+        /// [`NoBackoff`], trading performance for scheduler friendliness.
+        ///
+        /// [`spin_loop`]: core::hint::spin_loop
+        /// [`yield_now`]: loom::thread::yield_now
+        /// [`NoBackoff`]: backoff::NoBackoff
+        pub type DefaultUnboundedBackoff = backoff::ExponentialBackoff<6, true>;
+    } else {
+        /// Default unbounded backoff strategy for the MPSC/MPMC channel `U` parameter.
+        ///
+        /// On some platforms like `x86_64`, `SeqCst` stores are significantly more expensive
+        /// than `Release` stores. That's why MPSC and MPMC channels use by default a modified
+        /// algorithm where `SeqCst` stores are replaced by `Release` stores, at the cost of
+        /// having an unbounded backoff loop in `recv` operation. It means that under specific
+        /// circumstances, i.e., `recv` called while the next message is being sent,
+        /// [`spin_loop`] and even [`yield_now`] are called repeatedly until the `send`
+        /// operation finishes.
+        ///
+        /// If this behavior is not desired, channel's `U` parameter might be set to
+        /// [`NoBackoff`], trading performance for scheduler friendliness.
+        ///
+        /// [`spin_loop`]: core::hint::spin_loop
+        /// [`yield_now`]: loom::thread::yield_now
+        /// [`NoBackoff`]: backoff::NoBackoff
+        pub type DefaultUnboundedBackoff = backoff::NoBackoff;
+    }
+}

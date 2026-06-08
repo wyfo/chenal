@@ -1,5 +1,6 @@
 use core::{
     cmp,
+    marker::PhantomData,
     ptr::NonNull,
     sync::atomic::{
         Ordering::{Acquire, Relaxed, Release, SeqCst},
@@ -10,9 +11,9 @@ use core::{
 use aiq::WaitQueue;
 
 use crate::{
-    Channel, DEFAULT_UNBOUNDED_BACKOFF, MRx, MTx,
+    Channel, DefaultUnboundedBackoff, MRx, MTx,
     array::{HB_SHIFT, LB, Slots},
-    backoff::{Backoff, BackoffStrategy},
+    backoff::{Backoff, BackoffStrategy, UnboundedBackoffStrategy},
     capacity::Capacity,
     channel::{BoundedChannel, Chan},
     errors::{SendError, TryAcquireError},
@@ -37,31 +38,35 @@ pub struct Array<
     // However, it would make stale SeqCst loads possible on send, invalidating the
     // synchronization.
     C: Capacity = usize,
-    const UNBOUNDED_BACKOFF: bool = DEFAULT_UNBOUNDED_BACKOFF,
+    U: UnboundedBackoffStrategy = DefaultUnboundedBackoff,
 > {
     capacity: C,
+    backoff: PhantomData<U>,
 }
 
-impl<C: Capacity, const UNBOUNDED_BACKOFF: bool> Array<C, UNBOUNDED_BACKOFF> {
+impl<C: Capacity, U: UnboundedBackoffStrategy> Array<C, U> {
     /// Constructs a new `Array` with the specified capacity.
     pub fn new(capacity: C) -> Self {
-        Self { capacity }
+        Self {
+            capacity,
+            backoff: PhantomData,
+        }
     }
 }
 
-impl<C: Capacity, const UNBOUNDED_BACKOFF: bool> Channel for Array<C, UNBOUNDED_BACKOFF> {
+impl<C: Capacity, U: UnboundedBackoffStrategy> Channel for Array<C, U> {
     type TxHalf<T> = MTx<T, Self>;
     type RxHalf<T> = MRx<T, Self>;
 }
 
-impl<C: Capacity, const UNBOUNDED_BACKOFF: bool> BoundedChannel for Array<C, UNBOUNDED_BACKOFF> {}
+impl<C: Capacity, U: UnboundedBackoffStrategy> BoundedChannel for Array<C, U> {}
 
 pub(crate) struct Slot<T> {
     msg: RacyCell<T>,
     stamp: AtomicUsize,
 }
 
-impl<C: Capacity, const UNBOUNDED_BACKOFF: bool> internal::Channel for Array<C, UNBOUNDED_BACKOFF> {
+impl<C: Capacity, U: UnboundedBackoffStrategy> internal::Channel for Array<C, U> {
     type Storage<T> = Slots<Slot<T>, C>;
 
     fn storage<T>(self) -> Self::Storage<T> {
@@ -85,7 +90,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool> internal::Channel for Array<C, 
     }
 
     fn close<T>(chan: &Chan<T, Self>) {
-        let ordering = if UNBOUNDED_BACKOFF { SeqCst } else { Relaxed };
+        let ordering = if U::BACKOFF { SeqCst } else { Relaxed };
         chan.tx_state.fetch_or(chan.closed_flag(), ordering);
     }
 
@@ -121,7 +126,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool> internal::Channel for Array<C, 
         if tail == max_tail || tail_idx >= chan.capacity() - 1 {
             return Err(state);
         }
-        let ordering = if UNBOUNDED_BACKOFF { SeqCst } else { Relaxed };
+        let ordering = if U::BACKOFF { SeqCst } else { Relaxed };
         (chan.tx_state).compare_exchange_weak(state, state + 1, ordering, Relaxed)?;
         let slot = unsafe { chan.get_unchecked(tail_idx) }.into();
         Ok((slot, tail))
@@ -154,7 +159,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool> internal::Channel for Array<C, 
                 if max_tail == tail {
                     return Err(TryAcquireError::Unavailable);
                 }
-                if !UNBOUNDED_BACKOFF {
+                if !U::BACKOFF {
                     fence(Release);
                 }
                 next_state = (next_state & LB) | (max_tail << HB_SHIFT);
@@ -162,7 +167,7 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool> internal::Channel for Array<C, 
             if backoff.backoff(state, || chan.tx_state.load(Relaxed)) {
                 continue;
             }
-            let ordering = if UNBOUNDED_BACKOFF { SeqCst } else { Relaxed };
+            let ordering = if U::BACKOFF { SeqCst } else { Relaxed };
             match (chan.tx_state).compare_exchange_weak(*state, next_state, ordering, Relaxed) {
                 Ok(_) => {
                     let slot = unsafe { chan.get_unchecked(tail_idx) }.into();
@@ -179,13 +184,13 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool> internal::Channel for Array<C, 
         (slot, tail): Self::TxSlot<T>,
         msg: T,
     ) -> Result<(), SendError<T>> {
-        if !UNBOUNDED_BACKOFF {
+        if !U::BACKOFF {
             fence(Acquire);
         }
         unsafe { slot.as_ref().msg.write_racy(msg) };
-        let order = if UNBOUNDED_BACKOFF { Release } else { SeqCst };
+        let order = if U::BACKOFF { Release } else { SeqCst };
         unsafe { slot.as_ref().stamp.store(tail, order) };
-        if UNBOUNDED_BACKOFF {
+        if U::BACKOFF {
             chan.rx_waiter.notify_one();
         } else if !chan.rx_waiter.is_empty() {
             // A sender writing to a later slot may have completed and notified
@@ -196,9 +201,10 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool> internal::Channel for Array<C, 
             // notification is recovered.
             #[cold]
             #[inline(never)]
-            fn notify_receivers<C, const UB: bool, T>(chan: &Chan<T, Array<C, UB>>, tail: usize)
+            fn notify_receivers<C, U, T>(chan: &Chan<T, Array<C, U>>, tail: usize)
             where
                 C: Capacity,
+                U: UnboundedBackoffStrategy,
             {
                 // A lost notification means that WaitQueue state has been updated.
                 // As `is_empty` synchronizes with `notify_one`/`notify_all`,
@@ -258,14 +264,14 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool> internal::Channel for Array<C, 
         'outer: loop {
             let head_idx = *head & chan.slot_mask();
             let slot = unsafe { chan.get_unchecked(head_idx) };
-            let ordering = if UNBOUNDED_BACKOFF { Acquire } else { SeqCst };
+            let ordering = if U::BACKOFF { Acquire } else { SeqCst };
             if slot.stamp.load(ordering) != *head {
                 let head_reload = chan.rx_state.load(Relaxed);
                 if head_reload != *head {
                     *head = head_reload;
                     continue;
                 }
-                if UNBOUNDED_BACKOFF {
+                if U::BACKOFF {
                     let tail = chan.tx_state.load(SeqCst) & LB;
                     if *head == tail & !chan.closed_flag() {
                         return Err(if *head == tail {
@@ -278,13 +284,9 @@ impl<C: Capacity, const UNBOUNDED_BACKOFF: bool> internal::Channel for Array<C, 
                     panic!("this miri test requires feature \"std\"");
                     #[cfg(any(all(miri, feature = "std"), loom))]
                     let _guard = chan.lock.lock().unwrap();
-                    #[cfg(not(loom))]
-                    let backoff = crossbeam_utils::Backoff::new();
+                    let mut state = <U::State as Default>::default();
                     loop {
-                        #[cfg(not(loom))]
-                        backoff.snooze();
-                        #[cfg(loom)]
-                        loom::hint::spin_loop();
+                        U::backoff(&mut state);
                         // Head can advance concurrently and slot.stamp can be
                         // one lap forward, so it's necessary to reload the head
                         // to not loop forever

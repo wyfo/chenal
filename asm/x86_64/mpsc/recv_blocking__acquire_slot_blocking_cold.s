@@ -83,14 +83,13 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	mov rbx, qword ptr [rip + std::thread::functions::yield_now@GOTPCREL]
 	jmp .LBB6_5
 .LBB6_9:
-	inc r13d
-.LBB6_10:
+	call rbx
 	mov rax, qword ptr [r15 + 8]
 	cmp rax, r14
 	je .LBB6_11
 .LBB6_5:
-	cmp r13d, 6
-	ja .LBB6_8
+	cmp r13, 5
+	ja .LBB6_9
 	mov eax, 1
 .LBB6_7:
 	pause
@@ -100,12 +99,10 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	inc eax
 	test edx, edx
 	je .LBB6_7
-	jmp .LBB6_9
-.LBB6_8:
-	call rbx
-	cmp r13d, 11
-	jb .LBB6_9
-	jmp .LBB6_10
+	inc r13
+	mov rax, qword ptr [r15 + 8]
+	cmp rax, r14
+	jne .LBB6_5
 .LBB6_11:
 	test bpl, 1
 	je .LBB6_12

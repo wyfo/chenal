@@ -1,5 +1,6 @@
 use core::{
     cmp,
+    marker::PhantomData,
     mem::MaybeUninit,
     ptr::NonNull,
     sync::atomic::{
@@ -12,9 +13,9 @@ use aiq::WaitQueue;
 use spmc_waker::SpmcWaker;
 
 use crate::{
-    Channel, DEFAULT_UNBOUNDED_BACKOFF, MTx, Rx,
+    Channel, DefaultUnboundedBackoff, MTx, Rx,
     array::{HB_SHIFT, LB, Slots},
-    backoff::{Backoff, BackoffStrategy},
+    backoff::{Backoff, BackoffStrategy, UnboundedBackoffStrategy},
     capacity::Capacity,
     channel::{BoundedChannel, Chan},
     errors::{SendError, TryAcquireError},
@@ -32,14 +33,13 @@ use crate::{
 pub struct Array<
     const BLOCK_SIZE: usize = 1,
     C: Capacity = usize,
-    const UNBOUNDED_BACKOFF: bool = DEFAULT_UNBOUNDED_BACKOFF,
+    U: UnboundedBackoffStrategy = DefaultUnboundedBackoff,
 > {
     capacity: C,
+    backoff: PhantomData<U>,
 }
 
-impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool>
-    Array<BLOCK_SIZE, C, UNBOUNDED_BACKOFF>
-{
+impl<const BLOCK_SIZE: usize, C: Capacity, U: UnboundedBackoffStrategy> Array<BLOCK_SIZE, C, U> {
     /// Constructs a new `Array` with the specified capacity.
     pub fn new(capacity: C) -> Self {
         const {
@@ -52,19 +52,22 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool>
             capacity.get().is_multiple_of(BLOCK_SIZE),
             "capacity must be a multiple of `BLOCK_SIZE`"
         );
-        Self { capacity }
+        Self {
+            capacity,
+            backoff: PhantomData,
+        }
     }
 }
 
-impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool> Channel
-    for Array<BLOCK_SIZE, C, UNBOUNDED_BACKOFF>
+impl<const BLOCK_SIZE: usize, C: Capacity, U: UnboundedBackoffStrategy> Channel
+    for Array<BLOCK_SIZE, C, U>
 {
     type TxHalf<T> = MTx<T, Self>;
     type RxHalf<T> = Rx<T, Self>;
 }
 
-impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool> BoundedChannel
-    for Array<BLOCK_SIZE, C, UNBOUNDED_BACKOFF>
+impl<const BLOCK_SIZE: usize, C: Capacity, U: UnboundedBackoffStrategy> BoundedChannel
+    for Array<BLOCK_SIZE, C, U>
 {
 }
 
@@ -73,8 +76,8 @@ pub(crate) struct Slot<T> {
     stamp: AtomicUsize,
 }
 
-impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool> internal::Channel
-    for Array<BLOCK_SIZE, C, UNBOUNDED_BACKOFF>
+impl<const BLOCK_SIZE: usize, C: Capacity, U: UnboundedBackoffStrategy> internal::Channel
+    for Array<BLOCK_SIZE, C, U>
 {
     type Storage<T> = Slots<Slot<T>, C>;
 
@@ -99,7 +102,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool> intern
     }
 
     fn close<T>(chan: &Chan<T, Self>) {
-        let ordering = if UNBOUNDED_BACKOFF { SeqCst } else { Relaxed };
+        let ordering = if U::BACKOFF { SeqCst } else { Relaxed };
         chan.tx_state.fetch_or(chan.closed_flag(), ordering);
     }
 
@@ -135,7 +138,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool> intern
         if tail == max_tail || tail_idx >= chan.capacity() - 1 {
             return Err(state);
         }
-        let ordering = if UNBOUNDED_BACKOFF { SeqCst } else { Relaxed };
+        let ordering = if U::BACKOFF { SeqCst } else { Relaxed };
         (chan.tx_state).compare_exchange_weak(state, state + 1, ordering, Relaxed)?;
         let slot = unsafe { chan.get_unchecked(tail_idx) }.into();
         Ok((slot, tail))
@@ -168,7 +171,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool> intern
                 if max_tail == tail {
                     return Err(TryAcquireError::Unavailable);
                 }
-                if !UNBOUNDED_BACKOFF {
+                if !U::BACKOFF {
                     fence(Release);
                 }
                 next_state = (next_state & LB) | (max_tail << HB_SHIFT);
@@ -176,7 +179,7 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool> intern
             if backoff.backoff(state, || chan.tx_state.load(Relaxed)) {
                 continue;
             }
-            let ordering = if UNBOUNDED_BACKOFF { SeqCst } else { Relaxed };
+            let ordering = if U::BACKOFF { SeqCst } else { Relaxed };
             match (chan.tx_state).compare_exchange_weak(*state, next_state, ordering, Relaxed) {
                 Ok(_) => {
                     let slot = unsafe { chan.get_unchecked(tail_idx) }.into();
@@ -193,11 +196,11 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool> intern
         (slot, tail): Self::TxSlot<T>,
         msg: T,
     ) -> Result<(), SendError<T>> {
-        if !UNBOUNDED_BACKOFF {
+        if !U::BACKOFF {
             fence(Acquire);
         }
         unsafe { slot.as_ref().msg.with_ref_mut(|m| m.write(msg)) };
-        let ordering = if UNBOUNDED_BACKOFF { Release } else { SeqCst };
+        let ordering = if U::BACKOFF { Release } else { SeqCst };
         unsafe { slot.as_ref().stamp.store(tail, ordering) };
         chan.rx_waiter.wake_cold();
         Ok(())
@@ -237,12 +240,12 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool> intern
         backoff: bool,
     ) -> Result<Self::RxSlot<T>, TryAcquireError> {
         if !backoff {
-            let ordering = if UNBOUNDED_BACKOFF { Acquire } else { SeqCst };
+            let ordering = if U::BACKOFF { Acquire } else { SeqCst };
             if unsafe { slot.as_ref() }.stamp.load(ordering) == head {
                 return Ok((slot, head));
             }
         }
-        if UNBOUNDED_BACKOFF {
+        if U::BACKOFF {
             let tail = chan.tx_state.load(SeqCst) & LB;
             let closed_flag = chan.closed_flag();
             if head == tail & !closed_flag {
@@ -252,13 +255,9 @@ impl<const BLOCK_SIZE: usize, C: Capacity, const UNBOUNDED_BACKOFF: bool> intern
                     TryAcquireError::Closed
                 });
             }
-            #[cfg(not(loom))]
-            let backoff = crossbeam_utils::Backoff::new();
+            let mut state = <U::State as Default>::default();
             loop {
-                #[cfg(not(loom))]
-                backoff.snooze();
-                #[cfg(loom)]
-                loom::hint::spin_loop();
+                U::backoff(&mut state);
                 if unsafe { slot.as_ref() }.stamp.load(Acquire) == head {
                     return Ok((slot, head));
                 }

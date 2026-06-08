@@ -1,4 +1,5 @@
 use core::{
+    marker::PhantomData,
     pin::pin,
     task::{Context, Poll, Waker},
 };
@@ -6,6 +7,7 @@ use std::{sync::Arc, thread};
 
 use chenal::{
     Channel, MRx, MTx,
+    backoff::{ExponentialBackoff, NoBackoff, UnboundedBackoffStrategy},
     errors::{RecvError, SendError, TryRecvError, TrySendError},
     mpmc::Array,
 };
@@ -15,14 +17,14 @@ use futures::executor::block_on;
 use loom::future::block_on;
 use rstest::rstest;
 
-struct Bool<const BOOL: bool>;
-const TRUE: Bool<true> = Bool::<true>;
-const FALSE: Bool<false> = Bool::<false>;
+struct Ub<U>(PhantomData<U>);
+const NO: Ub<NoBackoff> = Ub(PhantomData);
+const EXP: Ub<ExponentialBackoff<6, true>> = Ub(PhantomData);
 
 trait Send2<T> {
     fn send2(&self, msg: T, sync: bool) -> Result<(), SendError<T>>;
 }
-impl<T, const UNBOUNDED_BACKOFF: bool> Send2<T> for MTx<T, Array<usize, UNBOUNDED_BACKOFF>> {
+impl<T, U: UnboundedBackoffStrategy> Send2<T> for MTx<T, Array<usize, U>> {
     fn send2(&self, msg: T, sync: bool) -> Result<(), SendError<T>> {
         if sync {
             self.send_blocking(msg)
@@ -34,7 +36,7 @@ impl<T, const UNBOUNDED_BACKOFF: bool> Send2<T> for MTx<T, Array<usize, UNBOUNDE
 trait Recv2<T> {
     fn recv2(&self, sync: bool) -> Result<T, RecvError>;
 }
-impl<T, const UNBOUNDED_BACKOFF: bool> Recv2<T> for MRx<T, Array<usize, UNBOUNDED_BACKOFF>> {
+impl<T, U: UnboundedBackoffStrategy> Recv2<T> for MRx<T, Array<usize, U>> {
     fn recv2(&self, sync: bool) -> Result<T, RecvError> {
         if sync {
             self.recv_blocking()
@@ -45,9 +47,12 @@ impl<T, const UNBOUNDED_BACKOFF: bool> Recv2<T> for MRx<T, Array<usize, UNBOUNDE
 }
 
 #[rstest]
-fn mpmc<const UB: bool>(#[values(false, true)] sync: bool, #[values(FALSE, TRUE)] ub: Bool<UB>) {
+fn mpmc<U: UnboundedBackoffStrategy>(
+    #[values(false, true)] sync: bool,
+    #[values(NO, EXP)] ub: Ub<U>,
+) {
     let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(2).channel::<usize>();
+    let (tx, rx) = <Array<_, U>>::new(2).channel::<usize>();
     let mut values = thread::scope(|s| {
         s.spawn(|| tx.send2(0, sync).unwrap());
         s.spawn(|| tx.send2(1, sync).unwrap());
@@ -63,9 +68,9 @@ fn mpmc<const UB: bool>(#[values(false, true)] sync: bool, #[values(FALSE, TRUE)
 
 // Sequential send/recv preserves FIFO order.
 #[rstest]
-fn sequential<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
+fn sequential<U: UnboundedBackoffStrategy>(#[values(NO, EXP)] ub: Ub<U>) {
     let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(2).channel::<usize>();
+    let (tx, rx) = <Array<_, U>>::new(2).channel::<usize>();
     tx.try_send(1).unwrap();
     tx.try_send(2).unwrap();
     assert_eq!(rx.try_recv(), Ok(1));
@@ -75,9 +80,9 @@ fn sequential<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
 
 // Ring buffer wraps around correctly across multiple laps.
 #[rstest]
-fn wrap_around<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
+fn wrap_around<U: UnboundedBackoffStrategy>(#[values(NO, EXP)] ub: Ub<U>) {
     let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(2).channel::<usize>();
+    let (tx, rx) = <Array<_, U>>::new(2).channel::<usize>();
     for i in 0..4 {
         tx.try_send(i).unwrap();
         assert_eq!(rx.try_recv(), Ok(i));
@@ -86,9 +91,9 @@ fn wrap_around<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
 
 // try_send on a full channel returns Full without blocking.
 #[rstest]
-fn try_send_full<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
+fn try_send_full<U: UnboundedBackoffStrategy>(#[values(NO, EXP)] ub: Ub<U>) {
     let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(1).channel::<usize>();
+    let (tx, rx) = <Array<_, U>>::new(1).channel::<usize>();
     assert!(!tx.is_full());
     tx.try_send(0).unwrap();
     assert!(tx.is_full());
@@ -100,9 +105,9 @@ fn try_send_full<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
 
 // try_recv on an empty channel returns Empty without blocking.
 #[rstest]
-fn try_recv_empty<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
+fn try_recv_empty<U: UnboundedBackoffStrategy>(#[values(NO, EXP)] ub: Ub<U>) {
     let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(1).channel::<usize>();
+    let (tx, rx) = <Array<_, U>>::new(1).channel::<usize>();
     assert!(rx.is_empty());
     assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
     tx.try_send(0).unwrap();
@@ -113,12 +118,12 @@ fn try_recv_empty<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
 
 // Dropping all senders closes the channel; buffered messages are still readable.
 #[rstest]
-fn tx_drop_closes<const UB: bool>(
+fn tx_drop_closes<U: UnboundedBackoffStrategy>(
     #[values(false, true)] sync: bool,
-    #[values(FALSE, TRUE)] ub: Bool<UB>,
+    #[values(NO, EXP)] ub: Ub<U>,
 ) {
     let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(2).channel::<usize>();
+    let (tx, rx) = <Array<_, U>>::new(2).channel::<usize>();
     let tx2 = tx.clone();
     let weak = tx2.downgrade();
     tx.try_send(42).unwrap();
@@ -135,12 +140,12 @@ fn tx_drop_closes<const UB: bool>(
 
 // Dropping the receiver closes the channel; sends return Closed.
 #[rstest]
-fn rx_drop_closes<const UB: bool>(
+fn rx_drop_closes<U: UnboundedBackoffStrategy>(
     #[values(false, true)] sync: bool,
-    #[values(FALSE, TRUE)] ub: Bool<UB>,
+    #[values(NO, EXP)] ub: Ub<U>,
 ) {
     let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(2).channel::<usize>();
+    let (tx, rx) = <Array<_, U>>::new(2).channel::<usize>();
     let rx2 = rx.clone();
     let weak = rx2.downgrade();
     assert!(!tx.is_closed());
@@ -155,12 +160,12 @@ fn rx_drop_closes<const UB: bool>(
 
 // Dropping the sender while recv is blocked wakes the receiver with RecvError.
 #[rstest]
-fn tx_drop_while_recv_waiting<const UB: bool>(
+fn tx_drop_while_recv_waiting<U: UnboundedBackoffStrategy>(
     #[values(false, true)] sync: bool,
-    #[values(FALSE, TRUE)] ub: Bool<UB>,
+    #[values(NO, EXP)] ub: Ub<U>,
 ) {
     let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(1).channel::<usize>();
+    let (tx, rx) = <Array<_, U>>::new(1).channel::<usize>();
     let recv = thread::spawn(move || rx.recv2(sync));
     drop(tx);
     assert_eq!(recv.join().unwrap(), Err(RecvError));
@@ -168,12 +173,12 @@ fn tx_drop_while_recv_waiting<const UB: bool>(
 
 // Dropping the receiver while send is blocked wakes the sender with SendError.
 #[rstest]
-fn rx_drop_while_send_waiting<const UB: bool>(
+fn rx_drop_while_send_waiting<U: UnboundedBackoffStrategy>(
     #[values(false, true)] sync: bool,
-    #[values(FALSE, TRUE)] ub: Bool<UB>,
+    #[values(NO, EXP)] ub: Ub<U>,
 ) {
     let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(1).channel::<usize>();
+    let (tx, rx) = <Array<_, U>>::new(1).channel::<usize>();
     tx.try_send(0).unwrap();
     let send = thread::spawn(move || tx.send2(1, sync));
     drop(rx);
@@ -182,12 +187,12 @@ fn rx_drop_while_send_waiting<const UB: bool>(
 
 // Closing the channel concurrently with sends; all messages are either received or returned as errors.
 #[rstest]
-fn concurrent_close<const UB: bool>(
+fn concurrent_close<U: UnboundedBackoffStrategy>(
     #[values(false, true)] sync: bool,
-    #[values(FALSE, TRUE)] ub: Bool<UB>,
+    #[values(NO, EXP)] ub: Ub<U>,
 ) {
     let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(2).channel::<usize>();
+    let (tx, rx) = <Array<_, U>>::new(2).channel::<usize>();
     let err = |res| Result::err(res).map(|SendError(m)| m);
     let mut values = thread::scope(|s| {
         let s1 = s.spawn(|| err(tx.send2(0, sync)));
@@ -208,12 +213,12 @@ fn concurrent_close<const UB: bool>(
 
 // A canceled SendFuture does not deliver its message.
 #[rstest]
-fn send_future_cancel<const UB: bool>(
-    #[values(FALSE, TRUE)] ub: Bool<UB>,
+fn send_future_cancel<U: UnboundedBackoffStrategy>(
+    #[values(NO, EXP)] ub: Ub<U>,
     #[values(false, true)] take: bool,
 ) {
     let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(1).channel::<usize>();
+    let (tx, rx) = <Array<_, U>>::new(1).channel::<usize>();
     tx.try_send(0).unwrap();
     {
         let mut fut = pin!(tx.send(1));
@@ -229,9 +234,9 @@ fn send_future_cancel<const UB: bool>(
 
 // Canceling a notified SendFuture passes the notification to the next waiter.
 #[rstest]
-fn send_future_cancel_wakes_next<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
+fn send_future_cancel_wakes_next<U: UnboundedBackoffStrategy>(#[values(NO, EXP)] ub: Ub<U>) {
     let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(1).channel::<usize>();
+    let (tx, rx) = <Array<_, U>>::new(1).channel::<usize>();
     tx.try_send(0).unwrap();
     let mut cx = Context::from_waker(Waker::noop());
     let mut send1 = pin!(tx.send(1));
@@ -246,9 +251,9 @@ fn send_future_cancel_wakes_next<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool
 
 // A canceled RecvFuture does not consume a message.
 #[rstest]
-fn recv_future_cancel<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
+fn recv_future_cancel<U: UnboundedBackoffStrategy>(#[values(NO, EXP)] ub: Ub<U>) {
     let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(1).channel::<usize>();
+    let (tx, rx) = <Array<_, U>>::new(1).channel::<usize>();
     {
         let mut fut = pin!(rx.recv());
         let mut cx = Context::from_waker(Waker::noop());
@@ -260,9 +265,9 @@ fn recv_future_cancel<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
 
 // Canceling a notified RecvFuture passes the notification to the next waiter.
 #[rstest]
-fn recv_future_cancel_wakes_next<const UB: bool>(#[values(FALSE, TRUE)] ub: Bool<UB>) {
+fn recv_future_cancel_wakes_next<U: UnboundedBackoffStrategy>(#[values(NO, EXP)] ub: Ub<U>) {
     let _ = ub;
-    let (tx, rx) = <Array<_, UB>>::new(1).channel::<usize>();
+    let (tx, rx) = <Array<_, U>>::new(1).channel::<usize>();
     let rx2 = rx.clone();
     let mut cx = Context::from_waker(Waker::noop());
     let mut recv2 = pin!(rx2.recv());
@@ -324,13 +329,13 @@ fn invalid_capacity(#[case] capacity: usize) {
 
 #[cfg(loom)]
 #[rstest]
-fn loom_mpmc<const UB: bool>(
+fn loom_mpmc<U: UnboundedBackoffStrategy>(
     #[values(false, true)] sync: bool,
-    #[values(FALSE, TRUE)] ub: Bool<UB>,
+    #[values(NO, EXP)] ub: Ub<U>,
 ) {
     let _ = ub;
     loom::model(move || {
-        let (tx, rx) = <Array<_, UB>>::new(2).channel::<usize>();
+        let (tx, rx) = <Array<_, U>>::new(2).channel::<usize>();
         loom::thread::spawn({
             let tx = tx.clone();
             move || tx.send2(0, sync).unwrap()
@@ -355,13 +360,13 @@ fn loom_mpmc<const UB: bool>(
 
 #[cfg(loom)]
 #[rstest]
-fn loom_concurrent_close<const UB: bool>(
+fn loom_concurrent_close<U: UnboundedBackoffStrategy>(
     #[values(false, true)] sync: bool,
-    #[values(FALSE, TRUE)] ub: Bool<UB>,
+    #[values(NO, EXP)] ub: Ub<U>,
 ) {
     let _ = ub;
     loom::model(move || {
-        let (tx, rx) = <Array<_, UB>>::new(2).channel::<usize>();
+        let (tx, rx) = <Array<_, U>>::new(2).channel::<usize>();
         let s1 = loom::thread::spawn({
             let tx = tx.clone();
             move || tx.send2(0, sync).err().map(|SendError(m)| m)

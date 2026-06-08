@@ -1,5 +1,5 @@
 //! Atomic compare-and-swap backoff abstraction.
-use core::hint::spin_loop;
+use crate::loom::hint::spin_loop;
 
 /// Backoff strategy in case of atomic compare-and-swap (CAS) failure.
 pub trait BackoffStrategy: Send + Sync + 'static {
@@ -23,7 +23,18 @@ pub enum RetryStrategy {
     ReloadAndRetryIfUnchanged,
 }
 
-/// No backoff, retry CAS straight away.
+/// Unbounded backoff strategy used to save an atomic RMW operation on concurrent
+/// senders/receivers.
+pub trait UnboundedBackoffStrategy: Send + Sync + 'static {
+    #[doc(hidden)]
+    const BACKOFF: bool = true;
+    /// Backoff state.
+    type State: Default;
+    /// Performs backoff and returns how the CAS should be retried.
+    fn backoff(state: &mut Self::State);
+}
+
+/// No backoff.
 pub struct NoBackoff;
 
 impl BackoffStrategy for NoBackoff {
@@ -31,6 +42,12 @@ impl BackoffStrategy for NoBackoff {
     fn backoff(_backoff: &mut Self::State) -> RetryStrategy {
         RetryStrategy::Retry
     }
+}
+
+impl UnboundedBackoffStrategy for NoBackoff {
+    const BACKOFF: bool = false;
+    type State = ();
+    fn backoff(_state: &mut Self::State) {}
 }
 
 /// Calls [`spin_loop`] and reload the atomic.
@@ -54,7 +71,7 @@ impl BackoffStrategy for SpinReload {
 /// updated during backoff.
 ///
 /// [`yield_now`]: crate::blocking::std::thread::yield_now
-pub struct ExponentialBackoff<const SPIN_LIMIT: usize, const YIELD: bool, const LOOP: bool>;
+pub struct ExponentialBackoff<const SPIN_LIMIT: usize, const YIELD: bool, const LOOP: bool = false>;
 
 impl<const SPIN_LIMIT: usize, const YIELD: bool, const LOOP: bool> BackoffStrategy
     for ExponentialBackoff<SPIN_LIMIT, YIELD, LOOP>
@@ -64,9 +81,7 @@ impl<const SPIN_LIMIT: usize, const YIELD: bool, const LOOP: bool> BackoffStrate
     fn backoff(backoff: &mut Self::State) -> RetryStrategy {
         if *backoff >= SPIN_LIMIT && YIELD && cfg!(feature = "std") {
             #[cfg(feature = "std")]
-            extern crate std;
-            #[cfg(feature = "std")]
-            std::thread::yield_now();
+            crate::loom::thread::yield_now();
         } else {
             for _ in 0..1 << *backoff {
                 spin_loop();
@@ -80,6 +95,15 @@ impl<const SPIN_LIMIT: usize, const YIELD: bool, const LOOP: bool> BackoffStrate
         } else {
             RetryStrategy::ReloadAndRetry
         }
+    }
+}
+
+impl<const SPIN_LIMIT: usize, const YIELD: bool> UnboundedBackoffStrategy
+    for ExponentialBackoff<SPIN_LIMIT, YIELD>
+{
+    type State = usize;
+    fn backoff(state: &mut Self::State) {
+        <Self as BackoffStrategy>::backoff(state);
     }
 }
 
