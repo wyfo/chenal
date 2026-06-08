@@ -17,51 +17,50 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	mov x24, sp
 	mov w25, #2
 .LBB14_1:
-	ldr x8, [x20, #456]
-	mov x12, x21
+	mov x11, x21
 	b .LBB14_3
 .LBB14_2:
-	mov x12, x21
-	cas x12, x10, [x20]
-	cmp x12, x21
-	b.eq .LBB14_19
+	mov x11, x21
+	casa x11, x9, [x20]
+	cmp x11, x21
+	b.eq .LBB14_17
 .LBB14_3:
-	ldr x10, [x20, #448]
-	and x9, x8, x12
-	mov x21, x12
+	ldp x10, x9, [x20, #448]
+	mov x21, x11
+	and x8, x9, x11
 	sub x10, x10, #1
-	cmp x9, x10
+	cmp x8, x10
 	cset w10, hi
 	csinv w10, w10, wzr, hs
 	ands w10, w10, #0xff
 	b.eq .LBB14_6
 	cmp w10, #255
-	b.ne .LBB14_17
-	add x10, x21, #1
-	mov w11, w21
-	cmp x11, x21, lsr #32
-	b.eq .LBB14_7
-	b .LBB14_2
+	b.ne .LBB14_19
+	add x9, x21, #1
+	mov w10, w21
+	cmp x10, x21, lsr #32
+	b.ne .LBB14_2
+	b .LBB14_7
 .LBB14_6:
-	orr w10, w21, w8
-	and x11, x21, #0xffffffff00000000
-	add w10, w10, #1
-	orr x10, x10, x11
-	mov w11, w21
-	cmp x11, x21, lsr #32
+	orr w9, w21, w9
+	and x10, x21, #0xffffffff00000000
+	add w9, w9, #1
+	orr x9, x9, x10
+	mov w10, w21
+	cmp x10, x21, lsr #32
 	b.ne .LBB14_2
 .LBB14_7:
-	ldr x12, [x20]
-	cmp x12, x21
+	ldr x11, [x20]
+	cmp x11, x21
 	b.ne .LBB14_3
-	add x8, x20, #128
-	ldar x12, [x8]
-	ldr x8, [x20, #456]
-	add w12, w12, w8
-	add w12, w12, #1
-	cmp x12, x11
+	add x11, x20, #128
+	ldar x11, [x11]
+	ldr w12, [x20, #456]
+	add w11, w11, w12
+	add w11, w11, #1
+	cmp x11, x10
 	b.eq .LBB14_10
-	bfi x10, x12, #32, #32
+	bfi x9, x11, #32, #32
 	dmb ish
 	b .LBB14_2
 .LBB14_10:
@@ -90,8 +89,9 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	mov x3, x26
 	b .LBB14_1
 .LBB14_17:
-	strb wzr, [x19, #8]
-	str xzr, [x19]
+	ldr x9, [x20, #440]
+	add x8, x9, x8, lsl #4
+	stp x8, x10, [x19]
 	ldr x8, [sp]
 	cbnz x8, .LBB14_20
 .LBB14_18:
@@ -103,9 +103,8 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	add sp, sp, #160
 	ret
 .LBB14_19:
-	ldr x8, [x20, #440]
-	add x8, x8, x9, lsl #4
-	stp x8, x11, [x19]
+	strb wzr, [x19, #8]
+	str xzr, [x19]
 	ldr x8, [sp]
 	cbz x8, .LBB14_18
 .LBB14_20:

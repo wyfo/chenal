@@ -21,7 +21,7 @@ jobs:
         with:
           workspaces: bench
       - name: run benchmarks
-        run: cd bench; cargo bench -- --quick '^${{ matrix.kind }}/'
+        run: cd bench; cargo bench -- --quick '^${{ matrix.kind }}/try_send'
       - name: export results
         run: cd bench; python3 report.py
 

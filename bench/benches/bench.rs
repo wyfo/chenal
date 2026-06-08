@@ -138,6 +138,7 @@ fn bench_try_send<T: Default + Debug + Unpin + 'static, S: Sender<T>, R: Receive
     let start = Instant::now();
     for _ in 0..MESSAGE_COUNT {
         tx.try_send(black_box(T::default()));
+        spin_loop();
     }
     start.elapsed()
 }
@@ -361,19 +362,19 @@ macro_rules! bench_channel {
 
 fn bench(c: &mut Criterion) {
     let mut benches: Benches = Benches::new();
-    bench_channel!(benches, async_channel(async), mpmc);
+    // bench_channel!(benches, async_channel(async), mpmc);
     bench_channel!(benches, chenal, mpmc);
-    bench_channel!(benches, chenal_ub, mpmc);
-    bench_channel!(benches, chenal_32, mpsc);
-    bench_channel!(benches, chenal_32_ub, mpsc);
-    bench_channel!(benches, crossfire, mpmc);
-    bench_channel!(benches, crossbeam(blocking), mpmc);
-    bench_channel!(benches, flume, mpmc);
-    bench_channel!(benches, kanal, mpmc);
-    bench_channel!(benches, postage, mpsc);
-    bench_channel!(benches, std(blocking), mpsc);
-    bench_channel!(benches, tokio, mpsc);
-    bench_channel!(benches, tachyonix(async), mpsc);
+    // bench_channel!(benches, chenal_ub, mpmc);
+    // bench_channel!(benches, chenal_32, mpsc);
+    // bench_channel!(benches, chenal_32_ub, mpsc);
+    // bench_channel!(benches, crossfire, mpmc);
+    // bench_channel!(benches, crossbeam(blocking), mpmc);
+    // bench_channel!(benches, flume, mpmc);
+    // bench_channel!(benches, kanal, mpmc);
+    // bench_channel!(benches, postage, mpsc);
+    // bench_channel!(benches, std(blocking), mpsc);
+    // bench_channel!(benches, tokio, mpsc);
+    // bench_channel!(benches, tachyonix(async), mpsc);
     for (group, funcs) in benches {
         let mut g = c.benchmark_group(group);
         for (func, f) in funcs {

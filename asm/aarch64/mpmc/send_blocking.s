@@ -17,13 +17,12 @@ mpmc_send_blocking:
 	b.hs .LBB18_5
 	add x11, x9, #1
 	add x12, x19, #128
-	cas x2, x11, [x12]
+	casa x2, x11, [x12]
 	cmp x2, x9
 	b.ne .LBB18_5
 	ldr x9, [x19, #568]
 	add x9, x9, x10, lsl #4
 	stp x9, x8, [sp]
-	dmb ishld
 	str x1, [x9], #8
 	add x10, x19, #440
 	stlr x8, [x9]
@@ -47,7 +46,6 @@ mpmc_send_blocking:
 	cbz x9, .LBB18_8
 	ldr x8, [sp, #8]
 	mov x1, x20
-	dmb ishld
 	str x20, [x9], #8
 	add x10, x19, #440
 	stlr x8, [x9]

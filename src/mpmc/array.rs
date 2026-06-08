@@ -126,7 +126,7 @@ impl<C: Capacity, U: UnboundedBackoffStrategy> internal::Channel for Array<C, U>
         if tail == max_tail || tail_idx >= chan.capacity() - 1 {
             return Err(state);
         }
-        let ordering = if U::BACKOFF { SeqCst } else { Relaxed };
+        let ordering = if U::BACKOFF { SeqCst } else { Acquire };
         (chan.tx_state).compare_exchange_weak(state, state + 1, ordering, Relaxed)?;
         let slot = unsafe { chan.get_unchecked(tail_idx) }.into();
         Ok((slot, tail))
@@ -167,7 +167,7 @@ impl<C: Capacity, U: UnboundedBackoffStrategy> internal::Channel for Array<C, U>
             if backoff.backoff(state, || chan.tx_state.load(Relaxed)) {
                 continue;
             }
-            let ordering = if U::BACKOFF { SeqCst } else { Relaxed };
+            let ordering = if U::BACKOFF { SeqCst } else { Acquire };
             match (chan.tx_state).compare_exchange_weak(*state, next_state, ordering, Relaxed) {
                 Ok(_) => {
                     let slot = unsafe { chan.get_unchecked(tail_idx) }.into();
@@ -184,9 +184,6 @@ impl<C: Capacity, U: UnboundedBackoffStrategy> internal::Channel for Array<C, U>
         (slot, tail): Self::TxSlot<T>,
         msg: T,
     ) -> Result<(), SendError<T>> {
-        if !U::BACKOFF {
-            fence(Acquire);
-        }
         unsafe { slot.as_ref().msg.write_racy(msg) };
         let order = if U::BACKOFF { Release } else { SeqCst };
         unsafe { slot.as_ref().stamp.store(tail, order) };
