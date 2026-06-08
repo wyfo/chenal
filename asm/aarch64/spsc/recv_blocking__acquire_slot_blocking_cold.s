@@ -86,12 +86,12 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 .LBB1_18:
 	orr x8, x22, x8, lsl #32
 	tbz w0, #0, .LBB1_21
-	add x9, x20, #328
-	ldar x10, [x9]
-	cmp x10, #1
+	ldr x9, [x20, #328]
+	cmp x9, #1
 	b.hi .LBB1_21
-	orr x11, x10, #0x2
-	casal x10, x11, [x9]
+	orr x10, x9, #0x2
+	add x11, x20, #328
+	cas x9, x10, [x11]
 .LBB1_21:
 	str x8, [x19, #8]
 	strb wzr, [x19]

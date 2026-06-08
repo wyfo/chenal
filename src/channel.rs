@@ -448,13 +448,21 @@ impl<T, Ch: Channel, B: BackoffStrategy> Future for SendFuture<'_, T, Ch, B> {
 /// Resolves once a message is available, or the channel is closed.
 ///
 /// The future can be reused to receive subsequent messages, as a [`Stream`](futures_core::stream::Stream).
-pub struct RecvFuture<'a, T, Ch: Channel, B: BackoffStrategy = NoBackoff> {
+pub struct RecvFuture<
+    'a,
+    T,
+    Ch: Channel,
+    B: BackoffStrategy = NoBackoff,
+    const UNREGISTER_ON_DROP: bool = false,
+> {
     chan: &'a Chan<T, Ch>,
     wait: <Ch::RxWaiter as Waiter>::Wait<'a>,
     _backoff: PhantomData<B>,
 }
 
-impl<'a, T, Ch: Channel, B: BackoffStrategy> RecvFuture<'a, T, Ch, B> {
+impl<'a, T, Ch: Channel, B: BackoffStrategy, const UNREGISTER_ON_DROP: bool>
+    RecvFuture<'a, T, Ch, B, UNREGISTER_ON_DROP>
+{
     #[inline(always)]
     fn new(chan: &'a Chan<T, Ch>) -> Self {
         Self {
@@ -465,7 +473,19 @@ impl<'a, T, Ch: Channel, B: BackoffStrategy> RecvFuture<'a, T, Ch, B> {
     }
 }
 
-impl<T, Ch: Channel, B: BackoffStrategy> Future for RecvFuture<'_, T, Ch, B> {
+impl<'a, T, Ch: Channel, B: BackoffStrategy, const UNREGISTER_ON_DROP: bool> Drop
+    for RecvFuture<'a, T, Ch, B, UNREGISTER_ON_DROP>
+{
+    fn drop(&mut self) {
+        if UNREGISTER_ON_DROP {
+            unsafe { self.chan.rx_waiter.unregister() };
+        }
+    }
+}
+
+impl<T, Ch: Channel, B: BackoffStrategy, const UNREGISTER_ON_DROP: bool> Future
+    for RecvFuture<'_, T, Ch, B, UNREGISTER_ON_DROP>
+{
     type Output = Result<T, RecvError>;
 
     #[inline(always)]
@@ -478,7 +498,9 @@ impl<T, Ch: Channel, B: BackoffStrategy> Future for RecvFuture<'_, T, Ch, B> {
 }
 
 #[cfg(feature = "stream")]
-impl<T, Ch: Channel, B: BackoffStrategy> futures_core::Stream for RecvFuture<'_, T, Ch, B> {
+impl<T, Ch: Channel, B: BackoffStrategy, const UNREGISTER_ON_DROP: bool> futures_core::Stream
+    for RecvFuture<'_, T, Ch, B, UNREGISTER_ON_DROP>
+{
     type Item = T;
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.poll(cx).map(Result::ok)
@@ -830,6 +852,17 @@ impl<T, Ch: Channel> Rx<T, Ch> {
     pub fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Result<T, RecvError>> {
         const { assert!(size_of::<<Ch::RxWaiter as Waiter>::Wait<'static>>() == 0) };
         pin!(self.recv()).poll(cx)
+    }
+
+    /// Receives a message, waiting asynchronously if the channel is empty.
+    ///
+    /// The difference with [`recv`](Self::recv) is about cancellation. When
+    /// canceled, the future returned by `recv_select` tries to unregister
+    /// the `Waker` which may have been registered by a previous poll, avoiding
+    /// spurious task wakeup. It is meant to be used in `select!`.
+    #[inline]
+    pub fn recv_select(&mut self) -> RecvFuture<'_, T, Ch, NoBackoff, true> {
+        RecvFuture::new(&self.chan)
     }
 }
 

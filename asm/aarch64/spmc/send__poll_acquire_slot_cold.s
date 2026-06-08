@@ -55,8 +55,8 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	mov x9, x0
 	mov x10, x1
 	add x11, x22, #288
-	mov x0, x22
 	mov w8, #2
+	mov x0, x22
 	mov x1, x23
 	stp x10, x9, [x22, #256]
 	mov w9, #1
@@ -71,18 +71,18 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	bl spmc_waker::SpmcWaker<_,_>::overwrite
 	mov x1, x21
 	mov w9, w0
-	mov x0, x19
 	mov w8, #2
+	mov x0, x19
 	b .LBB4_10
 .LBB4_13:
 	orr x1, x20, x10, lsl #32
 	tbz w9, #0, .LBB4_16
-	add x8, x0, #288
-	ldar x9, [x8]
-	cmp x9, #1
+	ldr x8, [x0, #288]
+	cmp x8, #1
 	b.hi .LBB4_16
-	orr x10, x9, #0x2
-	casal x9, x10, [x8]
+	orr x9, x8, #0x2
+	add x10, x0, #288
+	cas x8, x9, [x10]
 .LBB4_16:
 	mov x8, xzr
 	mov x0, x8

@@ -77,12 +77,12 @@ chenal::channel::Chan<T,Ch>::acquire_slot_blocking_cold:
 	b .LBB6_2
 .LBB6_14:
 	tbz w0, #0, .LBB6_17
-	add x8, x22, #344
-	ldar x9, [x8]
-	cmp x9, #1
+	ldr x8, [x22, #344]
+	cmp x8, #1
 	b.hi .LBB6_17
-	orr x10, x9, #0x2
-	casal x9, x10, [x8]
+	orr x9, x8, #0x2
+	add x10, x22, #344
+	cas x8, x9, [x10]
 .LBB6_17:
 	stp x21, x20, [x19]
 	ldp x20, x19, [sp, #64]

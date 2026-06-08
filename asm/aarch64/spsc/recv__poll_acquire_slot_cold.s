@@ -27,12 +27,12 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 .LBB1_3:
 	orr x1, x21, x9, lsl #32
 	tbz w8, #0, .LBB1_6
-	add x8, x0, #328
-	ldar x9, [x8]
-	cmp x9, #1
+	ldr x8, [x0, #328]
+	cmp x8, #1
 	b.hi .LBB1_6
-	orr x10, x9, #0x2
-	casal x9, x10, [x8]
+	orr x9, x8, #0x2
+	add x10, x0, #328
+	cas x8, x9, [x10]
 .LBB1_6:
 	mov x19, xzr
 .LBB1_7:

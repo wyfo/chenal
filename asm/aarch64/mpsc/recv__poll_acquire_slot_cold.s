@@ -86,12 +86,12 @@ chenal::channel::Chan<T,Ch>::poll_acquire_slot_cold:
 	ret
 .LBB6_14:
 	tbz w8, #0, .LBB6_17
-	add x8, x1, #344
-	ldar x9, [x8]
-	cmp x9, #1
+	ldr x8, [x1, #344]
+	cmp x8, #1
 	b.hi .LBB6_17
-	orr x10, x9, #0x2
-	casal x9, x10, [x8]
+	orr x9, x8, #0x2
+	add x10, x1, #344
+	cas x8, x9, [x10]
 .LBB6_17:
 	stp x19, x20, [x0, #8]
 	b .LBB6_19
